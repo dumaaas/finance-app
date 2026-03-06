@@ -75,7 +75,7 @@ function formatReceiptDate(dateStr: string): { display: string; timestamp: numbe
 }
 
 export function ReceiptScanPage() {
-  const { theme, currency } = useAppStore();
+  const { theme } = useAppStore();
   const { data: categories = [] } = useCategories();
   const { create, userId } = useTransactionMutations();
   const scannerRef = useRef<HTMLDivElement>(null);
@@ -112,35 +112,13 @@ export function ReceiptScanPage() {
     } else {
       toast.error('QR kod nije crnogorski fiskalni racun');
     }
-  }, [stopScanner, currency]);
+  }, [stopScanner]);
 
-  const startScanner = async () => {
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-
-      if (html5QrRef.current) {
-        await stopScanner();
-      }
-
-      const scanner = new Html5Qrcode('qr-reader');
-      html5QrRef.current = scanner;
-      setScannerActive(true);
-
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1,
-        },
-        (decodedText) => handleQrResult(decodedText),
-        () => {},
-      );
-    } catch (err) {
-      console.error('Scanner error:', err);
-      toast.error('Ne mogu pristupiti kameri. Provjeri dozvole.');
-      setScannerActive(false);
+  const startScanner = () => {
+    if (html5QrRef.current) {
+      stopScanner();
     }
+    setScannerActive(true);
   };
 
   const handleManualUrl = () => {
@@ -194,6 +172,49 @@ export function ReceiptScanPage() {
   useEffect(() => {
     return () => { stopScanner(); };
   }, [stopScanner]);
+
+  // Start scanner only after the #qr-reader div is mounted (when scannerActive becomes true)
+  useEffect(() => {
+    if (!scannerActive) return;
+
+    let scanner: import('html5-qrcode').Html5Qrcode | null = null;
+
+    const init = async () => {
+      const el = document.getElementById('qr-reader');
+      if (!el) return;
+
+      try {
+        const { Html5Qrcode } = await import('html5-qrcode');
+        scanner = new Html5Qrcode('qr-reader');
+        html5QrRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1,
+          },
+          (decodedText) => handleQrResult(decodedText),
+          () => { },
+        );
+      } catch (err) {
+        console.error('Scanner error:', err);
+        toast.error('Ne mogu pristupiti kameri. Provjeri dozvole.');
+        setScannerActive(false);
+      }
+    };
+
+    init();
+
+    return () => {
+      if (scanner?.isScanning) {
+        scanner.stop().catch(() => { });
+      }
+      scanner?.clear();
+      html5QrRef.current = null;
+    };
+  }, [scannerActive, handleQrResult]);
 
   const expenseCategories = categories.filter((c) => c.type === 'expense');
 

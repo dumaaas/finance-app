@@ -7,7 +7,13 @@ import { Button } from '../components/ui/Button';
 import toast from 'react-hot-toast';
 
 export function AuthPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signIn, signUp, signInWithGoogle } = useAuth();
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (authLoading) {
     return (
@@ -20,13 +26,6 @@ export function AuthPage() {
   if (user) {
     return <Navigate to="/" replace />;
   }
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const { signIn, signUp, signInWithGoogle } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +144,7 @@ export function AuthPage() {
               </button>
             </div>
 
-            <Button type="submit" loading={loading} className="w-full !py-3.5">
+            <Button type="submit" loading={loading} className="w-full py-3.5!">
               {isLogin ? 'Prijavi se' : 'Kreiraj nalog'}
             </Button>
           </form>
