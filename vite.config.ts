@@ -70,7 +70,7 @@ export default defineConfig({
           'charts': ['recharts'],
           'vendor': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'framer-motion'],
           'icons': ['lucide-react'],
-          'ocr': ['tesseract.js'],
+          'qr': ['html5-qrcode'],
         },
       },
     },

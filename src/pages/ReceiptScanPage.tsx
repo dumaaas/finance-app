@@ -1,122 +1,181 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, Upload, Loader2, FileText, Plus, X, Sparkles } from 'lucide-react';
+import {
+  QrCode, Camera, StopCircle, FileText, X,
+  Building2, Calendar, Hash, Receipt, CheckCircle2,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Select } from '../components/ui/Input';
+import { Input, Select } from '../components/ui/Input';
 import { useCategories, useTransactionMutations } from '../hooks/useFirestore';
 import { useAppStore } from '../lib/store';
 import { cn, formatCurrency } from '../lib/utils';
 import toast from 'react-hot-toast';
 
-interface ScannedItem {
-  description: string;
-  amount: number;
+interface ReceiptData {
+  iic: string;
+  tin: string;
+  totalPrice: number;
+  dateTime: string;
+  orderNumber: string;
+  businessUnit: string;
+  cashRegister: string;
+  software: string;
+  verifyUrl: string;
+}
+
+function parseReceiptQR(qrText: string): ReceiptData | null {
+  try {
+    const url = new URL(qrText);
+    if (!url.hostname.includes('tax.gov.me')) return null;
+
+    const hash = url.hash || '';
+    const queryPart = hash.includes('?') ? hash.split('?')[1] : url.search.slice(1);
+    const params = new URLSearchParams(queryPart);
+
+    const iic = params.get('iic') || '';
+    const tin = params.get('tin') || '';
+    const crtd = params.get('crtd') || '';
+    const ord = params.get('ord') || '';
+    const bu = params.get('bu') || '';
+    const cr = params.get('cr') || '';
+    const sw = params.get('sw') || '';
+    const prc = params.get('prc') || '0';
+
+    if (!tin && !prc) return null;
+
+    return {
+      iic,
+      tin,
+      totalPrice: parseFloat(prc.replace(',', '.')),
+      dateTime: crtd,
+      orderNumber: ord,
+      businessUnit: bu,
+      cashRegister: cr,
+      software: sw,
+      verifyUrl: qrText,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatReceiptDate(dateStr: string): { display: string; timestamp: number } {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) throw new Error('Invalid');
+    return {
+      display: format(date, 'dd.MM.yyyy HH:mm'),
+      timestamp: date.getTime(),
+    };
+  } catch {
+    return { display: dateStr || 'Nepoznat datum', timestamp: Date.now() };
+  }
 }
 
 export function ReceiptScanPage() {
   const { theme, currency } = useAppStore();
   const { data: categories = [] } = useCategories();
   const { create, userId } = useTransactionMutations();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scannerRef = useRef<HTMLDivElement>(null);
+  const html5QrRef = useRef<import('html5-qrcode').Html5Qrcode | null>(null);
 
-  const [scanning, setScanning] = useState(false);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [items, setItems] = useState<ScannedItem[]>([]);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [categoryId, setCategoryId] = useState('');
+  const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [manualUrl, setManualUrl] = useState('');
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const url = URL.createObjectURL(file);
-    setImageUrl(url);
-    setScanning(true);
-    setItems([]);
-
+  const stopScanner = useCallback(async () => {
     try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('eng+deu+hrv');
-      const { data } = await worker.recognize(file);
-      await worker.terminate();
-
-      const lines = data.text.split('\n').filter((l) => l.trim());
-      const parsedItems: ScannedItem[] = [];
-
-      for (const line of lines) {
-        const match = line.match(/(.+?)\s+([\d.,]+)\s*$/);
-        if (match) {
-          const desc = match[1].trim();
-          const amount = parseFloat(match[2].replace(',', '.'));
-          if (desc && amount > 0 && amount < 100000) {
-            parsedItems.push({ description: desc, amount });
-          }
-        }
+      if (html5QrRef.current?.isScanning) {
+        await html5QrRef.current.stop();
       }
-
-      if (parsedItems.length === 0) {
-        const totalMatch = data.text.match(/(?:total|ukupno|suma|iznos)[:\s]*([\d.,]+)/i);
-        if (totalMatch) {
-          parsedItems.push({
-            description: 'Ukupno sa racuna',
-            amount: parseFloat(totalMatch[1].replace(',', '.')),
-          });
-        }
-      }
-
-      setItems(parsedItems.length > 0 ? parsedItems : [{ description: 'Racun', amount: 0 }]);
-      if (parsedItems.length > 0) {
-        toast.success(`Pronadjeno ${parsedItems.length} stavki`);
-      } else {
-        toast('OCR nije pronasao stavke. Dodaj ih rucno.', { icon: 'i' });
-      }
+      html5QrRef.current?.clear();
     } catch {
-      toast.error('Greska pri skeniranju');
-      setItems([{ description: 'Racun', amount: 0 }]);
-    } finally {
-      setScanning(false);
+      // scanner already stopped
+    }
+    html5QrRef.current = null;
+    setScannerActive(false);
+  }, []);
+
+  const handleQrResult = useCallback((decodedText: string) => {
+    const data = parseReceiptQR(decodedText);
+    if (data) {
+      stopScanner();
+      setReceiptData(data);
+      const dateInfo = formatReceiptDate(data.dateTime);
+      setDescription(`Fiskalni racun - ${dateInfo.display}`);
+      toast.success(`Racun skeniran: ${formatCurrency(data.totalPrice, 'EUR')}`);
+    } else {
+      toast.error('QR kod nije crnogorski fiskalni racun');
+    }
+  }, [stopScanner, currency]);
+
+  const startScanner = async () => {
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+
+      if (html5QrRef.current) {
+        await stopScanner();
+      }
+
+      const scanner = new Html5Qrcode('qr-reader');
+      html5QrRef.current = scanner;
+      setScannerActive(true);
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1,
+        },
+        (decodedText) => handleQrResult(decodedText),
+        () => {},
+      );
+    } catch (err) {
+      console.error('Scanner error:', err);
+      toast.error('Ne mogu pristupiti kameri. Provjeri dozvole.');
+      setScannerActive(false);
     }
   };
 
-  const updateItem = (idx: number, field: keyof ScannedItem, value: string) => {
-    setItems(items.map((item, i) =>
-      i === idx ? { ...item, [field]: field === 'amount' ? parseFloat(value) || 0 : value } : item
-    ));
+  const handleManualUrl = () => {
+    if (!manualUrl.trim()) return;
+    handleQrResult(manualUrl.trim());
+    if (!receiptData) {
+      toast.error('Neispravan URL. Treba biti link sa tax.gov.me');
+    }
+    setManualUrl('');
   };
 
-  const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
-  const addItem = () => setItems([...items, { description: '', amount: 0 }]);
-
-  const totalAmount = items.reduce((s, i) => s + i.amount, 0);
-
-  const saveAll = async () => {
-    if (!userId || !categoryId || items.length === 0) {
-      toast.error('Odaberi kategoriju i provjeri stavke');
+  const saveTransaction = async () => {
+    if (!userId || !categoryId || !receiptData) {
+      toast.error('Odaberi kategoriju');
       return;
     }
 
     setSaving(true);
+    const dateInfo = formatReceiptDate(receiptData.dateTime);
+
     try {
-      const now = Date.now();
-      for (const item of items) {
-        if (item.amount > 0 && item.description) {
-          await create.mutateAsync({
-            amount: item.amount,
-            description: item.description,
-            categoryId,
-            type: 'expense',
-            date: now,
-            month: format(new Date(), 'yyyy-MM'),
-            userId,
-            createdAt: now,
-          });
-        }
-      }
-      toast.success('Sve transakcije sacuvane!');
-      setItems([]);
-      setImageUrl(null);
+      await create.mutateAsync({
+        amount: receiptData.totalPrice,
+        description: description || `Fiskalni racun #${receiptData.orderNumber}`,
+        categoryId,
+        type: 'expense',
+        date: dateInfo.timestamp,
+        month: format(new Date(dateInfo.timestamp), 'yyyy-MM'),
+        userId,
+        tags: [`TIN:${receiptData.tin}`, `IIC:${receiptData.iic}`],
+        createdAt: Date.now(),
+      });
+      toast.success('Transakcija sacuvana!');
+      setReceiptData(null);
+      setDescription('');
       setCategoryId('');
     } catch {
       toast.error('Greska pri cuvanju');
@@ -125,151 +184,214 @@ export function ReceiptScanPage() {
     }
   };
 
+  const reset = () => {
+    stopScanner();
+    setReceiptData(null);
+    setDescription('');
+    setCategoryId('');
+  };
+
+  useEffect(() => {
+    return () => { stopScanner(); };
+  }, [stopScanner]);
+
   const expenseCategories = categories.filter((c) => c.type === 'expense');
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 sm:space-y-6">
-      <h2 className="text-xl sm:text-2xl font-black">Skeniraj racun</h2>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 sm:space-y-6 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl sm:text-2xl font-black">Skeniraj racun</h2>
+        {(scannerActive || receiptData) && (
+          <Button variant="ghost" size="sm" onClick={reset}><X size={16} /> Resetuj</Button>
+        )}
+      </div>
 
-      {/* Upload area */}
-      {!imageUrl && !scanning && (
-        <Card className="!p-8">
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              'flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-8 sm:p-12 cursor-pointer transition-all',
-              theme === 'dark' ? 'border-dark-700 hover:border-primary-500/50 hover:bg-dark-800/30' : 'border-dark-300 hover:border-primary-500/50 hover:bg-dark-50'
-            )}
-          >
-            <div className="w-20 h-20 rounded-3xl gradient-primary flex items-center justify-center mb-4 shadow-lg shadow-primary-500/20">
-              <Camera size={36} className="text-white" />
-            </div>
-            <h3 className="text-lg font-bold mb-1">Fotografisi ili uploaduj racun</h3>
-            <p className="text-sm opacity-50 text-center max-w-xs">
-              Slikaj racun kamerom ili uploaduj sliku. AI ce prepoznati stavke automatski.
+      {/* Info card */}
+      <Card className="gradient-mesh">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-primary-500/20 shrink-0">
+            <QrCode size={22} className="text-primary-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold mb-1">CG Fiskalni QR kod</h3>
+            <p className="text-xs opacity-60 leading-relaxed">
+              Skeniraj QR kod sa fiskalnog racuna iz Crne Gore. Automatski se preuzimaju podaci o iznosu, datumu i poreskom obvezniku sa Poreske uprave.
             </p>
-            <div className="flex gap-3 mt-6">
-              <Button size="sm"><Camera size={16} /> Kamera</Button>
-              <Button variant="secondary" size="sm"><Upload size={16} /> Upload</Button>
-            </div>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-        </Card>
-      )}
+        </div>
+      </Card>
 
-      {/* Scanning */}
-      {scanning && (
-        <Card className="!p-8 text-center">
-          <div className="flex flex-col items-center gap-4">
-            <div className="relative">
-              <div className="w-20 h-20 rounded-3xl gradient-primary flex items-center justify-center animate-pulse">
-                <Sparkles size={36} className="text-white" />
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-bold">Skeniram racun...</h3>
-              <p className="text-sm opacity-50">OCR prepoznavanje u toku</p>
-            </div>
-            <Loader2 size={24} className="animate-spin text-primary-400" />
-          </div>
-        </Card>
-      )}
-
-      {/* Results */}
-      {!scanning && items.length > 0 && (
+      {/* Scanner / Start button */}
+      {!receiptData && (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Image preview */}
-            {imageUrl && (
-              <Card>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold opacity-80">Slika racuna</h3>
-                  <button onClick={() => { setImageUrl(null); setItems([]); }}
-                    className="p-1.5 rounded-lg hover:bg-danger-500/20"><X size={16} className="text-danger-400" /></button>
-                </div>
-                <img src={imageUrl} alt="Receipt" className="w-full rounded-xl max-h-80 object-contain" />
-              </Card>
-            )}
-
-            {/* Parsed items */}
+          {!scannerActive ? (
             <Card>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold opacity-80">Prepoznate stavke</h3>
-                <button onClick={addItem} className="p-1.5 rounded-lg hover:bg-dark-700/50"><Plus size={16} /></button>
+              <div className="flex flex-col items-center py-8">
+                <div className="w-24 h-24 rounded-3xl gradient-primary flex items-center justify-center mb-5 shadow-xl shadow-primary-500/25">
+                  <QrCode size={44} className="text-white" />
+                </div>
+                <h3 className="text-lg font-bold mb-1">Spremi QR kod</h3>
+                <p className="text-sm opacity-50 text-center max-w-xs mb-6">
+                  Usmjeri kameru na QR kod fiskalnog racuna
+                </p>
+                <Button onClick={startScanner} size="lg">
+                  <Camera size={20} /> Pokreni skener
+                </Button>
               </div>
 
-              <div className="space-y-3">
-                {items.map((item, idx) => (
-                  <div key={idx} className="flex gap-2 items-start">
-                    <input
-                      type="text"
-                      value={item.description}
-                      onChange={(e) => updateItem(idx, 'description', e.target.value)}
-                      placeholder="Opis"
-                      className={cn('flex-1 px-3 py-2 rounded-lg text-sm outline-none', theme === 'dark' ? 'bg-dark-800 border border-dark-700 text-dark-100' : 'bg-dark-50 border border-dark-200')}
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={item.amount || ''}
-                      onChange={(e) => updateItem(idx, 'amount', e.target.value)}
-                      placeholder="0.00"
-                      className={cn('w-24 px-3 py-2 rounded-lg text-sm outline-none text-right', theme === 'dark' ? 'bg-dark-800 border border-dark-700 text-dark-100' : 'bg-dark-50 border border-dark-200')}
-                    />
-                    <button onClick={() => removeItem(idx)} className="p-2 rounded-lg hover:bg-danger-500/20 shrink-0">
-                      <X size={14} className="text-danger-400" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className={cn('flex justify-between items-center mt-4 pt-4 border-t', theme === 'dark' ? 'border-dark-700' : 'border-dark-200')}>
-                <span className="text-sm font-bold">Ukupno:</span>
-                <span className="text-lg font-black text-primary-400">{formatCurrency(totalAmount, currency)}</span>
+              {/* Manual URL entry */}
+              <div className={cn('mt-6 pt-6 border-t', theme === 'dark' ? 'border-dark-800' : 'border-dark-200')}>
+                <p className="text-xs font-semibold opacity-60 mb-3">Ili unesi URL rucno:</p>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={manualUrl}
+                    onChange={(e) => setManualUrl(e.target.value)}
+                    placeholder="https://mapr.tax.gov.me/ic/#/verify?..."
+                    onKeyDown={(e) => e.key === 'Enter' && handleManualUrl()}
+                    className={cn(
+                      'flex-1 px-3 py-2.5 rounded-xl text-sm outline-none',
+                      theme === 'dark'
+                        ? 'bg-dark-800 border border-dark-700 text-dark-100 placeholder:text-dark-500'
+                        : 'bg-dark-50 border border-dark-200 text-dark-900 placeholder:text-dark-400',
+                      'focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20'
+                    )}
+                  />
+                  <Button onClick={handleManualUrl} size="sm">Provjeri</Button>
+                </div>
               </div>
             </Card>
-          </div>
-
-          {/* Category & Save */}
-          <Card>
-            <div className="flex flex-col sm:flex-row gap-4 items-end">
-              <div className="flex-1 w-full">
-                <Select
-                  label="Kategorija za sve stavke"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  options={[{ value: '', label: 'Odaberi kategoriju' }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
-                />
+          ) : (
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-danger-500 animate-pulse" />
+                  Skener aktivan
+                </h3>
+                <Button variant="danger" size="sm" onClick={stopScanner}>
+                  <StopCircle size={16} /> Zaustavi
+                </Button>
               </div>
-              <Button onClick={saveAll} loading={saving} className="w-full sm:w-auto">
-                <FileText size={16} /> Sacuvaj sve transakcije
-              </Button>
+              <div
+                id="qr-reader"
+                ref={scannerRef}
+                className="rounded-xl overflow-hidden"
+              />
+              <p className="text-xs text-center opacity-40 mt-3">
+                Usmjeri kameru na QR kod fiskalnog racuna
+              </p>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Receipt data display */}
+      {receiptData && (
+        <>
+          <Card>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 rounded-xl bg-accent-500/20">
+                <CheckCircle2 size={22} className="text-accent-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold">Racun uspjesno skeniran</h3>
+                <p className="text-xs opacity-50">Podaci preuzeti sa QR koda</p>
+              </div>
             </div>
+
+            {/* Amount - big display */}
+            <div className={cn(
+              'text-center py-6 rounded-2xl mb-5',
+              theme === 'dark' ? 'bg-dark-800/60' : 'bg-dark-50'
+            )}>
+              <p className="text-xs font-medium opacity-50 mb-1">Ukupan iznos</p>
+              <p className="text-4xl font-black text-primary-400">
+                {formatCurrency(receiptData.totalPrice, 'EUR')}
+              </p>
+            </div>
+
+            {/* Details grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <DetailItem
+                icon={<Calendar size={15} />}
+                label="Datum i vrijeme"
+                value={formatReceiptDate(receiptData.dateTime).display}
+                theme={theme}
+              />
+              <DetailItem
+                icon={<Building2 size={15} />}
+                label="PIB obveznika"
+                value={receiptData.tin || '-'}
+                theme={theme}
+              />
+              <DetailItem
+                icon={<Hash size={15} />}
+                label="Broj racuna"
+                value={receiptData.orderNumber || '-'}
+                theme={theme}
+              />
+              <DetailItem
+                icon={<Receipt size={15} />}
+                label="Poslovna jed."
+                value={receiptData.businessUnit?.slice(0, 12) || '-'}
+                theme={theme}
+              />
+            </div>
+
+            {/* Verify link */}
+            <a
+              href={receiptData.verifyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-4 text-xs text-center text-primary-400 hover:text-primary-300 underline underline-offset-2"
+            >
+              Verifikuj racun na tax.gov.me
+            </a>
           </Card>
 
-          {/* Scan another */}
-          <div className="text-center">
-            <Button variant="ghost" onClick={() => { fileInputRef.current?.click(); }}>
-              <Camera size={16} /> Skeniraj novi racun
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-          </div>
+          {/* Save form */}
+          <Card>
+            <h3 className="text-sm font-bold mb-4">Sacuvaj kao transakciju</h3>
+            <div className="space-y-4">
+              <Input
+                label="Opis"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Npr. Kupovina u Voli marketu"
+              />
+              <Select
+                label="Kategorija"
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                options={[
+                  { value: '', label: 'Odaberi kategoriju' },
+                  ...expenseCategories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
+              <div className="flex gap-3">
+                <Button onClick={saveTransaction} loading={saving} className="flex-1">
+                  <FileText size={16} /> Sacuvaj transakciju
+                </Button>
+                <Button variant="secondary" onClick={reset}>
+                  <QrCode size={16} /> Novi sken
+                </Button>
+              </div>
+            </div>
+          </Card>
         </>
       )}
     </motion.div>
+  );
+}
+
+function DetailItem({ icon, label, value, theme }: { icon: React.ReactNode; label: string; value: string; theme: string }) {
+  return (
+    <div className={cn('p-3 rounded-xl', theme === 'dark' ? 'bg-dark-800/60' : 'bg-dark-50')}>
+      <div className="flex items-center gap-1.5 mb-1 opacity-50">
+        {icon}
+        <span className="text-[10px] font-medium">{label}</span>
+      </div>
+      <p className="text-sm font-semibold truncate">{value}</p>
+    </div>
   );
 }
