@@ -20,9 +20,14 @@ export async function fetchDocs<T>(
   collectionPath: string,
   ...constraints: QueryConstraint[]
 ): Promise<T[]> {
-  const q = query(getCollection(collectionPath), ...constraints);
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as T));
+  try {
+    const q = query(getCollection(collectionPath), ...constraints);
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as T));
+  } catch (error) {
+    console.error(`[Firestore] Error fetching "${collectionPath}":`, error);
+    throw error;
+  }
 }
 
 export async function fetchDoc<T>(

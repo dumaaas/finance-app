@@ -48,10 +48,13 @@ function ThemeInitializer({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.body.className = theme;
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) {
-      meta.setAttribute('content', theme === 'dark' ? '#020617' : '#f8fafc');
-    }
+    // Update ALL theme-color meta tags (we have two for prefers-color-scheme)
+    const color = theme === 'dark' ? '#020617' : '#f8fafc';
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+      meta.setAttribute('content', color);
+    });
+    // Also update inline html bg color for iOS standalone
+    document.documentElement.style.backgroundColor = color;
   }, [theme]);
 
   return <>{children}</>;

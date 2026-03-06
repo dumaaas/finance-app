@@ -45,12 +45,13 @@ export function Sidebar() {
       <aside
         className={cn(
           'fixed top-0 left-0 h-full z-50 transition-transform duration-300 lg:translate-x-0 lg:static lg:z-auto',
-          'w-[280px] flex flex-col safe-top safe-bottom',
+          'w-70 flex flex-col',
           theme === 'dark'
             ? 'bg-dark-950 border-r border-dark-800'
             : 'bg-white border-r border-dark-200',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5">
