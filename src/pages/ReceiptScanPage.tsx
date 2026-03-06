@@ -80,6 +80,8 @@ export function ReceiptScanPage() {
   const { create, userId } = useTransactionMutations();
   const scannerRef = useRef<HTMLDivElement>(null);
   const html5QrRef = useRef<import('html5-qrcode').Html5Qrcode | null>(null);
+  const lastDecodedRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
+  const DEBOUNCE_MS = 1500;
 
   const [scannerActive, setScannerActive] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
@@ -102,14 +104,27 @@ export function ReceiptScanPage() {
   }, []);
 
   const handleQrResult = useCallback((decodedText: string) => {
+    const now = Date.now();
+    const last = lastDecodedRef.current;
+    const preview = decodedText.length > 60 ? decodedText.slice(0, 60) + '...' : decodedText;
+    console.log('[QR] Prepoznat tekst (dužina ' + decodedText.length + '):', preview);
+
+    if (last.text === decodedText && now - last.at < DEBOUNCE_MS) {
+      console.log('[QR] Preskačem (isti QR u debounce periodu)');
+      return;
+    }
+    lastDecodedRef.current = { text: decodedText, at: now };
+
     const data = parseReceiptQR(decodedText);
     if (data) {
+      console.log('[QR] Validan fiskalni račun:', data.totalPrice, 'EUR', data.dateTime);
       stopScanner();
       setReceiptData(data);
       const dateInfo = formatReceiptDate(data.dateTime);
       setDescription(`Fiskalni racun - ${dateInfo.display}`);
       toast.success(`Racun skeniran: ${formatCurrency(data.totalPrice, 'EUR')}`);
     } else {
+      console.log('[QR] Nije CG fiskalni račun (nema tax.gov.me ili neispravan format)');
       toast.error('QR kod nije crnogorski fiskalni racun');
     }
   }, [stopScanner]);
@@ -183,25 +198,58 @@ export function ReceiptScanPage() {
       const el = document.getElementById('qr-reader');
       if (!el) return;
 
+      lastDecodedRef.current = { text: '', at: 0 };
+
+      const startConfig = {
+        fps: 15,
+        aspectRatio: 4 / 3,
+        qrbox: (w: number, h: number) => {
+          const size = Math.round(Math.min(w, h) * 0.85);
+          return { width: size, height: size };
+        },
+        videoConstraints: {
+          facingMode: 'environment',
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+        },
+      };
+
       try {
-        const { Html5Qrcode } = await import('html5-qrcode');
-        scanner = new Html5Qrcode('qr-reader');
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+        scanner = new Html5Qrcode('qr-reader', {
+          verbose: false,
+          useBarCodeDetectorIfSupported: true,
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        });
         html5QrRef.current = scanner;
 
         await scanner.start(
           { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1,
-          },
+          startConfig,
           (decodedText) => handleQrResult(decodedText),
-          () => { },
+          () => {},
         );
       } catch (err) {
-        console.error('Scanner error:', err);
-        toast.error('Ne mogu pristupiti kameri. Provjeri dozvole.');
-        setScannerActive(false);
+        console.warn('[QR Scanner] S videoConstraints nije uspio, pokušavam bez:', err);
+        try {
+          const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+          scanner = new Html5Qrcode('qr-reader', {
+            verbose: false,
+            useBarCodeDetectorIfSupported: true,
+            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          });
+          html5QrRef.current = scanner;
+          await scanner.start(
+            { facingMode: 'environment' },
+            { fps: 15, aspectRatio: 4 / 3, qrbox: (w: number, h: number) => ({ width: Math.round(Math.min(w, h) * 0.85), height: Math.round(Math.min(w, h) * 0.85) }) },
+            (decodedText) => handleQrResult(decodedText),
+            () => {},
+          );
+        } catch (err2) {
+          console.error('[QR Scanner] Greška:', err2);
+          toast.error('Ne mogu pristupiti kameri. Provjeri dozvole.');
+          setScannerActive(false);
+        }
       }
     };
 
@@ -296,7 +344,7 @@ export function ReceiptScanPage() {
               <div
                 id="qr-reader"
                 ref={scannerRef}
-                className="rounded-xl overflow-hidden"
+                className="rounded-xl overflow-hidden min-h-[280px] [&_video]:max-h-[min(70vh,420px)]!"
               />
               <p className="text-xs text-center opacity-40 mt-3">
                 Usmjeri kameru na QR kod fiskalnog racuna

@@ -25,14 +25,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-/** Use redirect flow on iOS, PWA standalone, or mobile — popup fails there */
+/** Redirect is broken on iOS Safari (storage partitioning). Use only on Android mobile. */
 function shouldUseRedirect(): boolean {
   if (typeof window === 'undefined') return false;
   const ua = window.navigator.userAgent.toLowerCase();
   const isIOS = /iphone|ipad|ipod/.test(ua);
-  const isStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
-  return isStandalone || isIOS || isMobile;
+  const isAndroid = /android/.test(ua);
+  return isAndroid && isMobile(ua);
+}
+
+function isMobile(ua: string): boolean {
+  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
 }
 
 function mapUser(firebaseUser: FirebaseUser): User {
