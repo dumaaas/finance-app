@@ -7,6 +7,8 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
@@ -22,6 +24,16 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+/** Use redirect flow on iOS, PWA standalone, or mobile — popup fails there */
+function shouldUseRedirect(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent.toLowerCase();
+  const isIOS = /iphone|ipad|ipod/.test(ua);
+  const isStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+  return isStandalone || isIOS || isMobile;
+}
 
 function mapUser(firebaseUser: FirebaseUser): User {
   return {
@@ -41,6 +53,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser ? mapUser(firebaseUser) : null);
       setLoading(false);
     });
+
+    // Handle return from Google redirect (PWA / iOS / mobile)
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) setUser(mapUser(result.user));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
     return unsubscribe;
   }, []);
 
@@ -56,6 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
+    if (shouldUseRedirect()) {
+      await signInWithRedirect(auth, provider);
+      return; // page will navigate away to Google, then back
+    }
     await signInWithPopup(auth, provider);
   };
 
