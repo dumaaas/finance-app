@@ -20,7 +20,7 @@ function monthlyAmountForBill(bill: { amount: number; frequency: string }): numb
 }
 
 export function RecurringBillsPage() {
-  const { theme, currency, selectedMonth } = useAppStore();
+  const { currency, selectedMonth } = useAppStore();
   const { data: bills = [], isLoading } = useRecurringBills();
   const { data: categories = [] } = useCategories();
   const { create, update, remove, userId } = useRecurringBillMutations();
