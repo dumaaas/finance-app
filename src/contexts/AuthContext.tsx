@@ -29,7 +29,6 @@ const AuthContext = createContext<AuthContextType | null>(null);
 function shouldUseRedirect(): boolean {
   if (typeof window === 'undefined') return false;
   const ua = window.navigator.userAgent.toLowerCase();
-  const isIOS = /iphone|ipad|ipod/.test(ua);
   const isAndroid = /android/.test(ua);
   return isAndroid && isMobile(ua);
 }

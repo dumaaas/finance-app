@@ -55,7 +55,7 @@ export function AuthPage() {
       const isIOS = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
       const isStandalone = typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true;
       if ((code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') && isIOS) {
-        toast.error('Otvorite stranicu u Safariju (ne kao aplikacija s početnog ekrana), pa probajte Google prijavu ponovo.');
+        toast.error(isStandalone ? 'Otvorite stranicu u Safariju (ne kao aplikacija s početnog ekrana), pa probajte Google prijavu ponovo.' : 'Dozvolite popup za prijavu ili otvorite stranicu u Safariju.');
       } else if (code === 'auth/popup-blocked') {
         toast.error('Dozvolite popup prozor za ovu stranicu u postavkama preglednika.');
       } else if (code === 'auth/network-request-failed') {

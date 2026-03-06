@@ -41,7 +41,7 @@ export function Layout() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide">
+        <div className={`flex-1 overflow-y-auto scrollbar-hide ${theme === 'dark' ? 'bg-dark-950' : 'bg-white'}`}>
           <div className="max-w-7xl mx-auto p-4 sm:p-6 pb-28 lg:pb-6">
             <Outlet />
           </div>
