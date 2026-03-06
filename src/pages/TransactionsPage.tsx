@@ -68,14 +68,20 @@ export function TransactionsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !formCategoryId) return;
+    if (!userId) return;
+    if (!formCategoryId) {
+      toast.error('Odaberi kategoriju');
+      return;
+    }
 
     const dateObj = new Date(formDate);
+    const selectedCat = categories.find((c) => c.id === formCategoryId);
+    const validSubId = selectedCat?.subcategories.some((s) => s.id === formSubcategoryId) ? formSubcategoryId : undefined;
     const data = {
       amount: parseFloat(formAmount),
       description: formDescription,
       categoryId: formCategoryId,
-      subcategoryId: formSubcategoryId || undefined,
+      ...(validSubId != null && validSubId !== '' && { subcategoryId: validSubId }),
       type: formType,
       date: dateObj.getTime(),
       month: format(dateObj, 'yyyy-MM'),
@@ -93,8 +99,14 @@ export function TransactionsPage() {
       }
       setShowModal(false);
       resetForm();
-    } catch {
-      toast.error('Greska pri cuvanju');
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      const msg = err instanceof Error ? err.message : '';
+      if (code === 'permission-denied') {
+        toast.error('Nemate dozvolu. Provjerite Firestore pravila (transakcije i kategorije).');
+      } else {
+        toast.error(msg || 'Greska pri cuvanju');
+      }
     }
   };
 
@@ -231,11 +243,11 @@ export function TransactionsPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Type toggle */}
           <div className="flex bg-dark-800 rounded-xl p-1">
-            <button type="button" onClick={() => { setFormType('expense'); setFormCategoryId(''); }}
+            <button type="button" onClick={() => { setFormType('expense'); setFormCategoryId(''); setFormSubcategoryId(''); }}
               className={cn('flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all', formType === 'expense' ? 'gradient-danger text-white' : 'text-dark-400')}>
               Rashod
             </button>
-            <button type="button" onClick={() => { setFormType('income'); setFormCategoryId(''); }}
+            <button type="button" onClick={() => { setFormType('income'); setFormCategoryId(''); setFormSubcategoryId(''); }}
               className={cn('flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all', formType === 'income' ? 'gradient-success text-white' : 'text-dark-400')}>
               Prihod
             </button>
@@ -244,6 +256,11 @@ export function TransactionsPage() {
           <Input label="Iznos" type="number" step="0.01" min="0" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
           <Input label="Opis" placeholder="Npr. Kupovina namirnica" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} required />
 
+          {formType === 'income' && filteredCategories.length === 0 && (
+            <p className="text-sm text-amber-500 bg-amber-500/10 rounded-xl px-3 py-2">
+              Nemate kategorija za prihode. Idite na <strong>Kategorije</strong> → tab <strong>Prihodi</strong> i dodajte ih, ili učitajte &quot;Podrazumjevane&quot;.
+            </p>
+          )}
           <Select
             label="Kategorija"
             value={formCategoryId}

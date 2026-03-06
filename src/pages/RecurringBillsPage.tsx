@@ -1,37 +1,51 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Edit3, Repeat, Zap, ToggleLeft, ToggleRight } from 'lucide-react';
+import { format } from 'date-fns';
+import { Plus, Trash2, Edit3, Repeat, Check } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Select, Textarea } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Icon } from '../components/ui/Icon';
 import { EmptyState } from '../components/ui/EmptyState';
-import { useRecurringBills, useRecurringBillMutations, useCategories } from '../hooks/useFirestore';
+import { useRecurringBills, useRecurringBillMutations, useTransactionMutations, useCategories } from '../hooks/useFirestore';
 import { useAppStore } from '../lib/store';
 import { formatCurrency, cn } from '../lib/utils';
 import toast from 'react-hot-toast';
 
+function monthlyAmountForBill(bill: { amount: number; frequency: string }): number {
+  if (bill.frequency === 'monthly') return bill.amount;
+  if (bill.frequency === 'quarterly') return bill.amount / 3;
+  return bill.amount / 12;
+}
+
 export function RecurringBillsPage() {
-  const { theme, currency } = useAppStore();
+  const { theme, currency, selectedMonth } = useAppStore();
   const { data: bills = [], isLoading } = useRecurringBills();
   const { data: categories = [] } = useCategories();
   const { create, update, remove, userId } = useRecurringBillMutations();
+  const { create: createTransaction } = useTransactionMutations();
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmPayBill, setConfirmPayBill] = useState<(typeof bills)[0] | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [confirmDeleteBill, setConfirmDeleteBill] = useState<(typeof bills)[0] | null>(null);
 
   const [formName, setFormName] = useState('');
   const [formAmount, setFormAmount] = useState('');
   const [formCategoryId, setFormCategoryId] = useState('');
+  const [formSubcategoryId, setFormSubcategoryId] = useState('');
   const [formDueDay, setFormDueDay] = useState('1');
   const [formFrequency, setFormFrequency] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
-  const [formAutoPay, setFormAutoPay] = useState(false);
   const [formNote, setFormNote] = useState('');
 
+  const formCategory = categories.find((c) => c.id === formCategoryId);
+  const expenseCategories = categories.filter((c) => c.type === 'expense');
+
   const resetForm = () => {
-    setFormName(''); setFormAmount(''); setFormCategoryId(''); setFormDueDay('1');
-    setFormFrequency('monthly'); setFormAutoPay(false); setFormNote(''); setEditingId(null);
+    setFormName(''); setFormAmount(''); setFormCategoryId(''); setFormSubcategoryId(''); setFormDueDay('1');
+    setFormFrequency('monthly'); setFormNote(''); setEditingId(null);
   };
 
   const openEdit = (bill: typeof bills[0]) => {
@@ -39,9 +53,9 @@ export function RecurringBillsPage() {
     setFormName(bill.name);
     setFormAmount(bill.amount.toString());
     setFormCategoryId(bill.categoryId || '');
+    setFormSubcategoryId(bill.subcategoryId || '');
     setFormDueDay(bill.dueDay.toString());
     setFormFrequency(bill.frequency);
-    setFormAutoPay(bill.isAutoPay);
     setFormNote(bill.note || '');
     setShowModal(true);
   };
@@ -50,13 +64,14 @@ export function RecurringBillsPage() {
     e.preventDefault();
     if (!userId) return;
 
+    const validSubId = formCategory?.subcategories.some((s) => s.id === formSubcategoryId) ? formSubcategoryId : undefined;
     const data = {
       name: formName,
       amount: parseFloat(formAmount),
       categoryId: formCategoryId || undefined,
+      ...(validSubId && { subcategoryId: validSubId }),
       dueDay: parseInt(formDueDay),
       frequency: formFrequency,
-      isAutoPay: formAutoPay,
       note: formNote || undefined,
       userId,
       isActive: true,
@@ -78,19 +93,42 @@ export function RecurringBillsPage() {
     }
   };
 
-  const toggleActive = async (bill: typeof bills[0]) => {
-    await update.mutateAsync({ id: bill.id, isActive: !bill.isActive });
-    toast.success(bill.isActive ? 'Deaktivirano' : 'Aktivirano');
+  const payBill = async (bill: typeof bills[0], amount: number) => {
+    if (!userId) return;
+    const paid = bill.paidMonths || [];
+    if (paid.includes(selectedMonth)) {
+      toast.error('Već plaćeno za ovaj mjesec.');
+      return;
+    }
+    try {
+      if (bill.categoryId) {
+        const subId = bill.subcategoryId && categories.find((c) => c.id === bill.categoryId)?.subcategories.some((s) => s.id === bill.subcategoryId) ? bill.subcategoryId : undefined;
+        await createTransaction.mutateAsync({
+          amount,
+          description: bill.name,
+          categoryId: bill.categoryId,
+          ...(subId && { subcategoryId: subId }),
+          type: 'expense',
+          date: Date.now(),
+          month: selectedMonth,
+          userId,
+          createdAt: Date.now(),
+        });
+      } else {
+        toast('Označeno plaćenim. Uredi račun i dodaj kategoriju da se transakcija upiše u rashode.', { icon: '💡' });
+      }
+      await update.mutateAsync({
+        id: bill.id,
+        paidMonths: [...paid, selectedMonth],
+      });
+      toast.success(bill.categoryId ? 'Plaćeno, transakcija dodana u rashode.' : 'Označeno plaćenim za ovaj mjesec.');
+      setConfirmPayBill(null);
+    } catch {
+      toast.error('Greška');
+    }
   };
 
-  const active = bills.filter((b) => b.isActive);
-  const inactive = bills.filter((b) => !b.isActive);
-  const totalMonthly = active.reduce((s, b) => {
-    if (b.frequency === 'monthly') return s + b.amount;
-    if (b.frequency === 'quarterly') return s + b.amount / 3;
-    return s + b.amount / 12;
-  }, 0);
-
+  const totalMonthly = bills.filter((b) => b.isActive).reduce((s, b) => s + monthlyAmountForBill(b), 0);
   const freqLabels = { monthly: 'Mjesecno', quarterly: 'Kvartalno', yearly: 'Godisnje' };
 
   return (
@@ -118,62 +156,59 @@ export function RecurringBillsPage() {
       ) : bills.length === 0 ? (
         <EmptyState icon="Repeat" title="Nema mjesecnih troskova" description="Dodaj stanarne troskove kao sto su kirija, internet, pretplate..." />
       ) : (
-        <>
-          {active.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-bold opacity-60">Aktivni ({active.length})</h3>
-              {active.map((bill) => {
-                const cat = categories.find((c) => c.id === bill.categoryId);
-                return (
-                  <Card key={bill.id} hover className="!p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: (cat?.color || '#6366f1') + '20' }}>
-                        <Icon name={cat?.icon || 'Repeat'} size={20} style={{ color: cat?.color || '#6366f1' }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold truncate">{bill.name}</p>
-                          {bill.isAutoPay && (
-                            <span className="px-2 py-0.5 text-[10px] font-bold bg-accent-500/20 text-accent-400 rounded-full">AUTO</span>
-                          )}
-                        </div>
-                        <p className="text-xs opacity-50">
-                          {bill.dueDay}. u mjesecu &middot; {freqLabels[bill.frequency]}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold">{formatCurrency(bill.amount, currency)}</span>
-                        <button onClick={() => toggleActive(bill)} className="p-1.5 rounded-lg hover:bg-dark-700/50">
-                          <ToggleRight size={18} className="text-accent-400" />
-                        </button>
-                        <button onClick={() => openEdit(bill)} className="p-1.5 rounded-lg hover:bg-dark-700/50"><Edit3 size={14} className="opacity-50" /></button>
-                        <button onClick={() => remove.mutateAsync(bill.id).then(() => toast.success('Obrisano'))} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-
-          {inactive.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-bold opacity-60">Neaktivni ({inactive.length})</h3>
-              {inactive.map((bill) => (
-                <Card key={bill.id} className="!p-3 opacity-50">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">{bill.name} - {formatCurrency(bill.amount, currency)}</p>
-                    <div className="flex gap-1">
-                      <button onClick={() => toggleActive(bill)} className="p-1.5 rounded-lg hover:bg-dark-700/50"><ToggleLeft size={18} /></button>
-                      <button onClick={() => remove.mutateAsync(bill.id)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
-                    </div>
+        <div className="space-y-2">
+          {bills.map((bill) => {
+            const cat = categories.find((c) => c.id === bill.categoryId);
+            const isPaidThisMonth = (bill.paidMonths || []).includes(selectedMonth);
+            return (
+              <Card
+                key={bill.id}
+                hover
+                className={cn(
+                  'p-3!',
+                  isPaidThisMonth && 'ring-2 ring-accent-500/50 bg-accent-500/5 dark:bg-accent-500/10'
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: (cat?.color || '#6366f1') + '20' }}>
+                    <Icon name={cat?.icon || 'Repeat'} size={20} style={{ color: cat?.color || '#6366f1' }} />
                   </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold truncate">{bill.name}</p>
+                      {isPaidThisMonth && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-accent-500/20 text-accent-400 rounded-full">
+                          Plaćeno za {format(new Date(selectedMonth + '-01'), 'MMM yyyy')}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs opacity-50">
+                      {bill.dueDay}. u mjesecu &middot; {freqLabels[bill.frequency]}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm font-bold">{formatCurrency(bill.amount, currency)}</span>
+                    {!isPaidThisMonth && (
+                      <button
+                        onClick={() => {
+                          setConfirmPayBill(bill);
+                          setPayAmount(monthlyAmountForBill(bill).toFixed(2));
+                        }}
+                        className="p-1.5 rounded-lg bg-accent-500/20 hover:bg-accent-500/30 transition-colors"
+                        title="Plati za ovaj mjesec"
+                      >
+                        <Check size={16} className="text-accent-400" />
+                      </button>
+                    )}
+                    <button onClick={() => openEdit(bill)} className="p-1.5 rounded-lg hover:bg-dark-700/50"><Edit3 size={14} className="opacity-50" /></button>
+                    <button onClick={() => setConfirmDeleteBill(bill)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       {/* Modal */}
@@ -184,21 +219,104 @@ export function RecurringBillsPage() {
             <Input label="Iznos" type="number" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
             <Input label="Dan u mjesecu" type="number" min="1" max="31" value={formDueDay} onChange={(e) => setFormDueDay(e.target.value)} required />
           </div>
-          <Select label="Kategorija" value={formCategoryId} onChange={(e) => setFormCategoryId(e.target.value)}
-            options={[{ value: '', label: 'Bez kategorije' }, ...categories.filter((c) => c.type === 'expense').map((c) => ({ value: c.id, label: c.name }))]} />
+          <Select
+            label="Kategorija"
+            value={formCategoryId}
+            onChange={(e) => { setFormCategoryId(e.target.value); setFormSubcategoryId(''); }}
+            options={[{ value: '', label: 'Bez kategorije' }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
+          />
+          {formCategory && formCategory.subcategories.length > 0 && (
+            <Select
+              label="Podkategorija"
+              value={formSubcategoryId}
+              onChange={(e) => setFormSubcategoryId(e.target.value)}
+              options={[{ value: '', label: 'Bez podkategorije' }, ...formCategory.subcategories.map((s) => ({ value: s.id, label: s.name }))]}
+            />
+          )}
           <Select label="Ucestalost" value={formFrequency} onChange={(e) => setFormFrequency(e.target.value as typeof formFrequency)}
-            options={[{ value: 'monthly', label: 'Mjesecno' }, { value: 'quarterly', label: 'Kvartalno' }, { value: 'Godisnje', label: 'Godisnje' }]} />
-          <button type="button" onClick={() => setFormAutoPay(!formAutoPay)}
-            className={cn('flex items-center gap-3 w-full p-3 rounded-xl transition-all', theme === 'dark' ? 'bg-dark-800' : 'bg-dark-100')}>
-            <Zap size={18} className={formAutoPay ? 'text-accent-400' : 'opacity-40'} />
-            <span className="text-sm font-medium flex-1 text-left">Automatsko placanje</span>
-            {formAutoPay ? <ToggleRight size={24} className="text-accent-400" /> : <ToggleLeft size={24} className="opacity-40" />}
-          </button>
+            options={[{ value: 'monthly', label: 'Mjesecno' }, { value: 'quarterly', label: 'Kvartalno' }, { value: 'yearly', label: 'Godisnje' }]} />
           <Textarea label="Napomena" placeholder="Opciono..." value={formNote} onChange={(e) => setFormNote(e.target.value)} />
           <Button type="submit" className="w-full" loading={create.isPending || update.isPending}>
             {editingId ? 'Sacuvaj' : 'Dodaj'}
           </Button>
         </form>
+      </Modal>
+
+      {/* Potvrda plaćanja */}
+      <Modal
+        isOpen={!!confirmPayBill}
+        onClose={() => { setConfirmPayBill(null); setPayAmount(''); }}
+        title="Plati račun"
+        size="sm"
+      >
+        {confirmPayBill && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              <strong>{confirmPayBill.name}</strong> — za mjesec {format(new Date(selectedMonth + '-01'), 'MMMM yyyy')}. Transakcija će biti dodana u rashode.
+            </p>
+            <Input
+              label="Iznos (možeš izmijeniti)"
+              type="number"
+              step="0.01"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+            />
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => { setConfirmPayBill(null); setPayAmount(''); }}>
+                Odustani
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  const amount = parseFloat(payAmount);
+                  if (!Number.isFinite(amount) || amount <= 0) {
+                    toast.error('Unesi ispravan iznos');
+                    return;
+                  }
+                  payBill(confirmPayBill, amount);
+                }}
+              >
+                Plati
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Potvrda brisanja */}
+      <Modal
+        isOpen={!!confirmDeleteBill}
+        onClose={() => setConfirmDeleteBill(null)}
+        title="Obrisati mjesečni trošak?"
+        size="sm"
+      >
+        {confirmDeleteBill && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              <strong>{confirmDeleteBill.name}</strong> će biti trajno obrisan. Ova akcija se ne može poništiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDeleteBill(null)}>
+                Odustani
+              </Button>
+              <Button
+                variant="danger"
+                className="flex-1"
+                onClick={async () => {
+                  try {
+                    await remove.mutateAsync(confirmDeleteBill.id);
+                    toast.success('Obrisano');
+                    setConfirmDeleteBill(null);
+                  } catch {
+                    toast.error('Greška');
+                  }
+                }}
+              >
+                Obriši
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </motion.div>
   );

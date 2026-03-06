@@ -5,9 +5,10 @@ import { format } from 'date-fns';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Textarea } from '../components/ui/Input';
+import { Select } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
-import { useInstallments, useInstallmentMutations } from '../hooks/useFirestore';
+import { useInstallments, useInstallmentMutations, useTransactionMutations, useCategories } from '../hooks/useFirestore';
 import { useAppStore } from '../lib/store';
 import { formatCurrency, cn } from '../lib/utils';
 import toast from 'react-hot-toast';
@@ -15,10 +16,14 @@ import toast from 'react-hot-toast';
 export function InstallmentsPage() {
   const { theme, currency } = useAppStore();
   const { data: installments = [], isLoading } = useInstallments();
+  const { data: categories = [] } = useCategories();
   const { create, update, remove, userId } = useInstallmentMutations();
+  const { create: createTransaction } = useTransactionMutations();
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmPayInst, setConfirmPayInst] = useState<(typeof installments)[0] | null>(null);
+  const [confirmDeleteInst, setConfirmDeleteInst] = useState<(typeof installments)[0] | null>(null);
 
   const [formName, setFormName] = useState('');
   const [formTotal, setFormTotal] = useState('');
@@ -26,11 +31,14 @@ export function InstallmentsPage() {
   const [formTotalInst, setFormTotalInst] = useState('');
   const [formPaid, setFormPaid] = useState('');
   const [formStart, setFormStart] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [formCategoryId, setFormCategoryId] = useState('');
   const [formNote, setFormNote] = useState('');
+
+  const expenseCategories = categories.filter((c) => c.type === 'expense');
 
   const resetForm = () => {
     setFormName(''); setFormTotal(''); setFormMonthly(''); setFormTotalInst('');
-    setFormPaid('0'); setFormStart(format(new Date(), 'yyyy-MM-dd')); setFormNote('');
+    setFormPaid('0'); setFormStart(format(new Date(), 'yyyy-MM-dd')); setFormCategoryId(''); setFormNote('');
     setEditingId(null);
   };
 
@@ -42,6 +50,7 @@ export function InstallmentsPage() {
     setFormTotalInst(inst.totalInstallments.toString());
     setFormPaid(inst.paidInstallments.toString());
     setFormStart(format(new Date(inst.startDate), 'yyyy-MM-dd'));
+    setFormCategoryId(inst.categoryId || '');
     setFormNote(inst.note || '');
     setShowModal(true);
   };
@@ -57,7 +66,8 @@ export function InstallmentsPage() {
       totalInstallments: parseInt(formTotalInst),
       paidInstallments: parseInt(formPaid || '0'),
       startDate: new Date(formStart).getTime(),
-      note: formNote || undefined,
+      ...(formCategoryId && { categoryId: formCategoryId }),
+      ...(formNote?.trim() && { note: formNote.trim() }),
       userId,
       isActive: parseInt(formPaid || '0') < parseInt(formTotalInst),
       createdAt: Date.now(),
@@ -80,13 +90,31 @@ export function InstallmentsPage() {
 
   const payInstallment = async (inst: typeof installments[0]) => {
     const newPaid = inst.paidInstallments + 1;
+    const now = Date.now();
+    const month = format(new Date(now), 'yyyy-MM');
     try {
+      if (inst.categoryId && userId) {
+        await createTransaction.mutateAsync({
+          amount: inst.monthlyAmount,
+          description: `${inst.name} (rata ${newPaid}/${inst.totalInstallments})`,
+          categoryId: inst.categoryId,
+          type: 'expense',
+          date: now,
+          month,
+          userId,
+          createdAt: now,
+        });
+      } else if (!inst.categoryId) {
+        toast('Rata će biti označena plaćenom. Uredi ratu i dodaj kategoriju da se transakcija pojavi u rashodima.', { icon: '💡' });
+      }
       await update.mutateAsync({
         id: inst.id,
         paidInstallments: newPaid,
         isActive: newPaid < inst.totalInstallments,
       });
-      toast.success(newPaid >= inst.totalInstallments ? 'Sve rate placene!' : 'Rata placena');
+      toast.success(
+        newPaid >= inst.totalInstallments ? 'Sve rate plaćene!' : inst.categoryId ? 'Rata plaćena, transakcija dodana u rashode.' : 'Rata označena plaćenom.'
+      );
     } catch {
       toast.error('Greska');
     }
@@ -144,11 +172,11 @@ export function InstallmentsPage() {
                         </p>
                       </div>
                       <div className="flex gap-1">
-                        <button onClick={() => payInstallment(inst)} className="p-2 rounded-xl bg-accent-500/20 hover:bg-accent-500/30 transition-colors" title="Plati ratu">
+                        <button onClick={() => setConfirmPayInst(inst)} className="p-2 rounded-xl bg-accent-500/20 hover:bg-accent-500/30 transition-colors" title="Plati ratu">
                           <Check size={16} className="text-accent-400" />
                         </button>
                         <button onClick={() => openEdit(inst)} className="p-2 rounded-xl hover:bg-dark-700/50"><Edit3 size={14} className="opacity-50" /></button>
-                        <button onClick={() => remove.mutateAsync(inst.id).then(() => toast.success('Obrisano'))} className="p-2 rounded-xl hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
+                        <button onClick={() => setConfirmDeleteInst(inst)} className="p-2 rounded-xl hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between text-xs mb-2">
@@ -180,7 +208,7 @@ export function InstallmentsPage() {
                       <p className="font-semibold line-through">{inst.name}</p>
                       <p className="text-xs opacity-50">{formatCurrency(inst.totalAmount, currency)} - Placeno</p>
                     </div>
-                    <button onClick={() => remove.mutateAsync(inst.id)} className="p-2 rounded-xl hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
+                    <button onClick={() => setConfirmDeleteInst(inst)} className="p-2 rounded-xl hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
                   </div>
                 </Card>
               ))}
@@ -202,11 +230,78 @@ export function InstallmentsPage() {
             <Input label="Placeno rata" type="number" value={formPaid} onChange={(e) => setFormPaid(e.target.value)} />
           </div>
           <Input label="Datum pocetka" type="date" value={formStart} onChange={(e) => setFormStart(e.target.value)} required />
+          <Select
+            label="Kategorija (za transakciju kad platiš ratu)"
+            value={formCategoryId}
+            onChange={(e) => setFormCategoryId(e.target.value)}
+            options={[
+              { value: '', label: 'Bez kategorije (neće ući u rashode)' },
+              ...expenseCategories.map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
           <Textarea label="Napomena" placeholder="Opciona napomena..." value={formNote} onChange={(e) => setFormNote(e.target.value)} />
           <Button type="submit" className="w-full" loading={create.isPending || update.isPending}>
             {editingId ? 'Sacuvaj' : 'Dodaj rate'}
           </Button>
         </form>
+      </Modal>
+
+      {/* Potvrda plaćanja rate */}
+      <Modal
+        isOpen={!!confirmPayInst}
+        onClose={() => setConfirmPayInst(null)}
+        title="Potvrdi plaćanje"
+        size="sm"
+      >
+        {confirmPayInst && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Platiti ratu za <strong>{confirmPayInst.name}</strong>?<br />
+              Iznos: <strong>{formatCurrency(confirmPayInst.monthlyAmount, currency)}</strong> (rata {confirmPayInst.paidInstallments + 1}/{confirmPayInst.totalInstallments}).
+              {confirmPayInst.categoryId && ' Transakcija će biti dodana u rashode.'}
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmPayInst(null)}>
+                Odustani
+              </Button>
+              <Button className="flex-1" onClick={() => { payInstallment(confirmPayInst); setConfirmPayInst(null); }}>
+                Plati
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Potvrda brisanja rate */}
+      <Modal
+        isOpen={!!confirmDeleteInst}
+        onClose={() => setConfirmDeleteInst(null)}
+        title="Obrisati ratu?"
+        size="sm"
+      >
+        {confirmDeleteInst && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Rata <strong>{confirmDeleteInst.name}</strong> će biti trajno obrisana. Ova akcija se ne može poništiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDeleteInst(null)}>
+                Odustani
+              </Button>
+              <Button variant="danger" className="flex-1" onClick={async () => {
+                try {
+                  await remove.mutateAsync(confirmDeleteInst.id);
+                  toast.success('Obrisano');
+                  setConfirmDeleteInst(null);
+                } catch {
+                  toast.error('Greska');
+                }
+              }}>
+                Obriši
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </motion.div>
   );

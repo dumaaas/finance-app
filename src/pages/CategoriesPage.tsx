@@ -85,8 +85,14 @@ export function CategoriesPage() {
       }
       setShowModal(false);
       resetForm();
-    } catch {
-      toast.error('Greska');
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      const msg = err instanceof Error ? err.message : '';
+      if (code === 'permission-denied') {
+        toast.error('Nemate dozvolu za cuvanje kategorija. Provjerite Firestore pravila.');
+      } else {
+        toast.error(msg || 'Greska pri cuvanju');
+      }
     }
   };
 
@@ -94,8 +100,13 @@ export function CategoriesPage() {
     try {
       await remove.mutateAsync(id);
       toast.success('Obrisano');
-    } catch {
-      toast.error('Greska');
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      if (code === 'permission-denied') {
+        toast.error('Nemate dozvolu. Provjerite Firestore pravila.');
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Greska');
+      }
     }
   };
 
@@ -114,8 +125,13 @@ export function CategoriesPage() {
         });
       }
       toast.success('Podrazumjevane kategorije dodane!');
-    } catch {
-      toast.error('Greska');
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      if (code === 'permission-denied') {
+        toast.error('Nemate dozvolu. Provjerite Firestore pravila.');
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Greska');
+      }
     }
   };
 

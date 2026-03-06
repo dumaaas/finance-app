@@ -57,12 +57,14 @@ export interface RecurringBill {
   name: string;
   amount: number;
   categoryId?: string;
+  subcategoryId?: string;
   dueDay: number; // day of month (1-31)
   frequency: 'monthly' | 'quarterly' | 'yearly';
-  isAutoPay: boolean;
   note?: string;
   userId: string;
   isActive: boolean;
+  /** Mjeseci u kojima je račun plaćen (YYYY-MM). Različito stanje po mjesecu. */
+  paidMonths?: string[];
   createdAt: number;
 }
 
