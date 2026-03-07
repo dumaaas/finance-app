@@ -25,16 +25,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-/** Redirect is broken on iOS Safari (storage partitioning). Use only on Android mobile. */
-function shouldUseRedirect(): boolean {
+/** Detect if running as installed PWA (standalone mode) */
+function isStandalone(): boolean {
   if (typeof window === 'undefined') return false;
-  const ua = window.navigator.userAgent.toLowerCase();
-  const isAndroid = /android/.test(ua);
-  return isAndroid && isMobile(ua);
-}
-
-function isMobile(ua: string): boolean {
-  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true ||
+    document.referrer.includes('android-app://')
+  );
 }
 
 function mapUser(firebaseUser: FirebaseUser): User {
@@ -56,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    // Handle return from Google redirect (PWA / iOS / mobile)
+    // Handle return from Google redirect (PWA / mobile)
     getRedirectResult(auth)
       .then((result) => {
         if (result?.user) setUser(mapUser(result.user));
@@ -79,11 +77,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    if (shouldUseRedirect()) {
+
+    // In standalone PWA mode, popup is almost always blocked.
+    // Go straight to redirect to avoid the flash-and-fail UX.
+    if (isStandalone()) {
       await signInWithRedirect(auth, provider);
-      return; // page will navigate away to Google, then back
+      return;
     }
-    await signInWithPopup(auth, provider);
+
+    // On regular browser: try popup first, fallback to redirect if blocked
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err
+        ? (err as { code: string }).code
+        : '';
+      if (code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') {
+        // Popup was blocked — fall back to redirect seamlessly
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw err; // Re-throw other errors (network, etc.)
+    }
   };
 
   const logout = async () => {

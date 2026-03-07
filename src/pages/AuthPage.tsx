@@ -49,17 +49,14 @@ export function AuthPage() {
   const handleGoogle = async () => {
     try {
       await signInWithGoogle();
+      // If we get here (popup flow), show success. Redirect flow navigates away.
       toast.success('Uspjesna prijava!');
     } catch (err: unknown) {
       const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
-      const isIOS = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
-      const isStandalone = typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      if ((code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') && isIOS) {
-        toast.error(isStandalone ? 'Otvorite stranicu u Safariju (ne kao aplikacija s početnog ekrana), pa probajte Google prijavu ponovo.' : 'Dozvolite popup za prijavu ili otvorite stranicu u Safariju.');
-      } else if (code === 'auth/popup-blocked') {
-        toast.error('Dozvolite popup prozor za ovu stranicu u postavkama preglednika.');
-      } else if (code === 'auth/network-request-failed') {
+      if (code === 'auth/network-request-failed') {
         toast.error('Nema interneta. Provjerite vezu.');
+      } else if (code === 'auth/popup-closed-by-user') {
+        toast.error('Popup prozor je zatvoren. Probajte ponovo.');
       } else {
         toast.error('Google prijava neuspjesna. Probajte email i lozinku.');
       }

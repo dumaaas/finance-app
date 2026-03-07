@@ -41,7 +41,19 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Don't serve cached index.html for Firebase auth redirects
+        navigateFallbackDenylist: [/^\/__/, /\/auth\/handler/],
         runtimeCaching: [
+          {
+            // Never cache Firebase Auth requests - let them always hit the network
+            urlPattern: /^https:\/\/(identitytoolkit|securetoken|accounts)\.googleapis\.com\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            // Never cache OAuth redirect/handler pages
+            urlPattern: /^https:\/\/.*\.firebaseapp\.com\/__\/auth\/.*/i,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
             handler: 'NetworkFirst',
