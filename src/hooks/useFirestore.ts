@@ -1,7 +1,8 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchDocs, createDoc, updateDocument, deleteDocument, where, orderBy } from '../lib/firestore';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { fetchDocs, fetchPaginatedDocs, createDoc, updateDocument, deleteDocument, where, orderBy, type PaginatedResult } from '../lib/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import type { Category, Transaction, Installment, RecurringBill, Budget, SavingsGoal } from '../types';
+import type { DocumentSnapshot } from 'firebase/firestore';
 
 // Categories
 export function useCategories() {
@@ -54,10 +55,34 @@ export function useTransactions(month: string) {
   });
 }
 
+const TX_PAGE_SIZE = 10;
+
+export function useInfiniteTransactions(month: string) {
+  const { user } = useAuth();
+  return useInfiniteQuery<PaginatedResult<Transaction>, Error, { pages: PaginatedResult<Transaction>[]; pageParams: (DocumentSnapshot | null)[] }, string[], DocumentSnapshot | null>({
+    queryKey: ['transactions-infinite', user?.uid ?? '', month],
+    queryFn: ({ pageParam }) =>
+      fetchPaginatedDocs<Transaction>(
+        'transactions',
+        TX_PAGE_SIZE,
+        pageParam,
+        where('userId', '==', user!.uid),
+        where('month', '==', month),
+        orderBy('date', 'desc')
+      ),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastDoc : undefined),
+    enabled: !!user,
+  });
+}
+
 export function useTransactionMutations() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['transactions'] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['transactions'] });
+    qc.invalidateQueries({ queryKey: ['transactions-infinite'] });
+  };
 
   const create = useMutation({
     mutationFn: (data: Omit<Transaction, 'id'>) => createDoc('transactions', data),

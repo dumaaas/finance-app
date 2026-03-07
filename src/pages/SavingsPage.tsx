@@ -4,11 +4,11 @@ import { Plus, Trash2, Edit3, PiggyBank, TrendingUp, PartyPopper } from 'lucide-
 import { format } from 'date-fns';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
+import { Input, Select } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Icon } from '../components/ui/Icon';
 import { EmptyState } from '../components/ui/EmptyState';
-import { useSavingsGoals, useSavingsGoalMutations } from '../hooks/useFirestore';
+import { useSavingsGoals, useSavingsGoalMutations, useCategories, useTransactionMutations } from '../hooks/useFirestore';
 import { useAppStore } from '../lib/store';
 import { formatCurrency, cn, CATEGORY_ICONS, CATEGORY_COLORS } from '../lib/utils';
 import toast from 'react-hot-toast';
@@ -17,12 +17,15 @@ export function SavingsPage() {
   const { theme, currency } = useAppStore();
   const { data: goals = [], isLoading } = useSavingsGoals();
   const { create, update, remove, userId } = useSavingsGoalMutations();
+  const { data: categories = [] } = useCategories();
+  const { create: createTransaction } = useTransactionMutations();
 
   const [showModal, setShowModal] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<(typeof goals)[0] | null>(null);
   const [addAmount, setAddAmount] = useState('');
+  const [addingFunds, setAddingFunds] = useState(false);
 
   const [formName, setFormName] = useState('');
   const [formTarget, setFormTarget] = useState('');
@@ -30,10 +33,16 @@ export function SavingsPage() {
   const [formDeadline, setFormDeadline] = useState('');
   const [formIcon, setFormIcon] = useState('PiggyBank');
   const [formColor, setFormColor] = useState('#6366f1');
+  const [formCategoryId, setFormCategoryId] = useState('');
+  const [formSubcategoryId, setFormSubcategoryId] = useState('');
+
+  const expenseCategories = categories.filter((c) => c.type === 'expense');
+  const selectedCategory = categories.find((c) => c.id === formCategoryId);
 
   const resetForm = () => {
     setFormName(''); setFormTarget(''); setFormCurrent('0'); setFormDeadline('');
     setFormIcon('PiggyBank'); setFormColor('#6366f1'); setEditingId(null);
+    setFormCategoryId(''); setFormSubcategoryId('');
   };
 
   const openEdit = (g: typeof goals[0]) => {
@@ -44,6 +53,8 @@ export function SavingsPage() {
     setFormDeadline(g.deadline ? format(new Date(g.deadline), 'yyyy-MM-dd') : '');
     setFormIcon(g.icon);
     setFormColor(g.color);
+    setFormCategoryId(g.categoryId || '');
+    setFormSubcategoryId(g.subcategoryId || '');
     setShowModal(true);
   };
 
@@ -53,11 +64,10 @@ export function SavingsPage() {
 
     const currentAmt = parseFloat(formCurrent || '0');
     const targetAmt = parseFloat(formTarget);
-    const data = {
+    const data: Record<string, unknown> = {
       name: formName,
       targetAmount: targetAmt,
       currentAmount: currentAmt,
-      deadline: formDeadline ? new Date(formDeadline).getTime() : undefined,
       icon: formIcon,
       color: formColor,
       userId,
@@ -65,12 +75,22 @@ export function SavingsPage() {
       createdAt: Date.now(),
     };
 
+    if (formDeadline) {
+      data.deadline = new Date(formDeadline).getTime();
+    }
+    if (formCategoryId) {
+      data.categoryId = formCategoryId;
+    }
+    if (formSubcategoryId) {
+      data.subcategoryId = formSubcategoryId;
+    }
+
     try {
       if (editingId) {
         await update.mutateAsync({ id: editingId, ...data });
         toast.success('Cilj azuriran');
       } else {
-        await create.mutateAsync(data);
+        await create.mutateAsync(data as Parameters<typeof create.mutateAsync>[0]);
         toast.success('Cilj kreiran!');
       }
       setShowModal(false);
@@ -82,24 +102,48 @@ export function SavingsPage() {
 
   const handleAddFunds = async (goalId: string) => {
     const goal = goals.find((g) => g.id === goalId);
-    if (!goal) return;
+    if (!goal || !userId) return;
 
-    const newAmount = goal.currentAmount + parseFloat(addAmount);
+    const amount = parseFloat(addAmount);
+    const newAmount = goal.currentAmount + amount;
+    setAddingFunds(true);
     try {
       await update.mutateAsync({
         id: goalId,
         currentAmount: newAmount,
         isCompleted: newAmount >= goal.targetAmount,
       });
+
+      // Auto-create expense transaction if goal has a category
+      if (goal.categoryId) {
+        const now = new Date();
+        const txData: Record<string, unknown> = {
+          amount,
+          description: `Ušteda za ${goal.name}`,
+          categoryId: goal.categoryId,
+          type: 'expense' as const,
+          date: now.getTime(),
+          month: format(now, 'yyyy-MM'),
+          userId,
+          createdAt: Date.now(),
+        };
+        if (goal.subcategoryId) {
+          txData.subcategoryId = goal.subcategoryId;
+        }
+        await createTransaction.mutateAsync(txData as Parameters<typeof createTransaction.mutateAsync>[0]);
+      }
+
       if (newAmount >= goal.targetAmount) {
         toast.success('Cilj ostvaren!!!');
       } else {
-        toast.success('Sredstva dodana');
+        toast.success(goal.categoryId ? 'Sredstva dodana i transakcija kreirana' : 'Sredstva dodana');
       }
       setShowAddFunds(null);
       setAddAmount('');
     } catch {
       toast.error('Greska');
+    } finally {
+      setAddingFunds(false);
     }
   };
 
@@ -139,6 +183,7 @@ export function SavingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {active.map((goal) => {
                 const pct = (goal.currentAmount / goal.targetAmount) * 100;
+                const cat = categories.find((c) => c.id === goal.categoryId);
                 return (
                   <Card key={goal.id}>
                     <div className="flex items-start justify-between mb-3">
@@ -150,6 +195,9 @@ export function SavingsPage() {
                           <p className="text-sm font-bold">{goal.name}</p>
                           {goal.deadline && (
                             <p className="text-xs opacity-40">Do {format(new Date(goal.deadline), 'dd.MM.yyyy')}</p>
+                          )}
+                          {cat && (
+                            <p className="text-xs opacity-40">{cat.name}</p>
                           )}
                         </div>
                       </div>
@@ -174,7 +222,7 @@ export function SavingsPage() {
                         <input type="number" step="0.01" placeholder="Iznos" value={addAmount}
                           onChange={(e) => setAddAmount(e.target.value)}
                           className={cn('flex-1 px-3 py-2 rounded-lg text-sm outline-none', theme === 'dark' ? 'bg-dark-800 border border-dark-700 text-dark-100' : 'bg-dark-50 border border-dark-200')} />
-                        <Button size="sm" onClick={() => handleAddFunds(goal.id)}>Dodaj</Button>
+                        <Button size="sm" onClick={() => handleAddFunds(goal.id)} loading={addingFunds} disabled={addingFunds}>Dodaj</Button>
                         <Button variant="ghost" size="sm" onClick={() => setShowAddFunds(null)}>X</Button>
                       </div>
                     ) : (
@@ -221,6 +269,22 @@ export function SavingsPage() {
             <Input label="Trenutno sacuvano" type="number" step="0.01" value={formCurrent} onChange={(e) => setFormCurrent(e.target.value)} />
           </div>
           <Input label="Rok (opciono)" type="date" value={formDeadline} onChange={(e) => setFormDeadline(e.target.value)} />
+
+          <Select
+            label="Kategorija rashoda (opciono)"
+            value={formCategoryId}
+            onChange={(e) => { setFormCategoryId(e.target.value); setFormSubcategoryId(''); }}
+            options={[{ value: '', label: 'Bez kategorije' }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
+          />
+
+          {selectedCategory && selectedCategory.subcategories.length > 0 && (
+            <Select
+              label="Podkategorija"
+              value={formSubcategoryId}
+              onChange={(e) => setFormSubcategoryId(e.target.value)}
+              options={[{ value: '', label: 'Bez podkategorije' }, ...selectedCategory.subcategories.map((s) => ({ value: s.id, label: s.name }))]}
+            />
+          )}
 
           <div className="space-y-1.5">
             <label className="block text-sm font-medium opacity-80">Ikonica</label>

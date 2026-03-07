@@ -9,8 +9,11 @@ import {
   query,
   where,
   orderBy,
+  limit,
+  startAfter,
   type DocumentData,
   type QueryConstraint,
+  type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -65,4 +68,37 @@ export async function deleteDocument(
   await deleteDoc(docRef);
 }
 
-export { where, orderBy, query };
+export interface PaginatedResult<T> {
+  items: T[];
+  lastDoc: DocumentSnapshot | null;
+  hasMore: boolean;
+}
+
+export async function fetchPaginatedDocs<T>(
+  collectionPath: string,
+  pageSize: number,
+  cursor: DocumentSnapshot | null,
+  ...constraints: QueryConstraint[]
+): Promise<PaginatedResult<T>> {
+  try {
+    const parts: QueryConstraint[] = [...constraints, limit(pageSize + 1)];
+    if (cursor) {
+      parts.push(startAfter(cursor));
+    }
+    const q = query(getCollection(collectionPath), ...parts);
+    const snapshot = await getDocs(q);
+    const docs = snapshot.docs;
+    const hasMore = docs.length > pageSize;
+    const sliced = hasMore ? docs.slice(0, pageSize) : docs;
+    return {
+      items: sliced.map((d) => ({ id: d.id, ...d.data() } as T)),
+      lastDoc: sliced.length > 0 ? sliced[sliced.length - 1] : null,
+      hasMore,
+    };
+  } catch (error) {
+    console.error(`[Firestore] Error fetching paginated "${collectionPath}":`, error);
+    throw error;
+  }
+}
+
+export { where, orderBy, limit, startAfter, query };

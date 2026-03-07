@@ -85,8 +85,11 @@ export interface SavingsGoal {
   deadline?: number;
   icon: string;
   color: string;
+  categoryId?: string;
+  subcategoryId?: string;
   userId: string;
   isCompleted: boolean;
+  isWithdrawn?: boolean;
   createdAt: number;
 }
 
