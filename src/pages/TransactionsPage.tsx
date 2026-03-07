@@ -21,6 +21,7 @@ export function TransactionsPage() {
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<(typeof transactions)[0] | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterCategory] = useState('all');
@@ -107,15 +108,6 @@ export function TransactionsPage() {
       } else {
         toast.error(msg || 'Greska pri cuvanju');
       }
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await remove.mutateAsync(id);
-      toast.success('Obrisano');
-    } catch {
-      toast.error('Greska pri brisanju');
     }
   };
 
@@ -226,7 +218,7 @@ export function TransactionsPage() {
                       <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg hover:bg-dark-700/50 transition-colors">
                         <Edit3 size={14} className="opacity-50" />
                       </button>
-                      <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded-lg hover:bg-danger-500/20 transition-colors">
+                      <button onClick={() => setConfirmDelete(t)} className="p-1.5 rounded-lg hover:bg-danger-500/20 transition-colors">
                         <Trash2 size={14} className="text-danger-400 opacity-50" />
                       </button>
                     </div>
@@ -237,6 +229,29 @@ export function TransactionsPage() {
           })}
         </div>
       )}
+
+      {/* Potvrda brisanja transakcije */}
+      <Modal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Obrisati transakciju?" size="sm">
+        {confirmDelete && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Transakcija <strong>{confirmDelete.description}</strong> ({formatCurrency(confirmDelete.amount, currency)}) ce biti trajno obrisana. Ova akcija se ne moze ponistiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDelete(null)}>Odustani</Button>
+              <Button variant="danger" className="flex-1" onClick={async () => {
+                try {
+                  await remove.mutateAsync(confirmDelete.id);
+                  toast.success('Obrisano');
+                  setConfirmDelete(null);
+                } catch {
+                  toast.error('Greska pri brisanju');
+                }
+              }}>Obrisi</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Add/Edit Modal */}
       <Modal isOpen={showModal} onClose={() => { setShowModal(false); resetForm(); }} title={editingId ? 'Uredi transakciju' : 'Nova transakcija'}>

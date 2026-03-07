@@ -20,6 +20,7 @@ export function BudgetPage() {
   const { create, update, remove, userId } = useBudgetMutations();
 
   const [showModal, setShowModal] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<(typeof budgetData)[0] | null>(null);
   const [formCategoryId, setFormCategoryId] = useState('');
   const [formAmount, setFormAmount] = useState('');
 
@@ -146,7 +147,7 @@ export function BudgetPage() {
                 <span className="text-xs opacity-40">
                   {b.remaining > 0 ? `Preostalo: ${formatCurrency(b.remaining, currency)}` : `Prekoracenje: ${formatCurrency(Math.abs(b.remaining), currency)}`}
                 </span>
-                <button onClick={() => remove.mutateAsync(b.id).then(() => toast.success('Obrisano'))}
+                <button onClick={() => setConfirmDelete(b)}
                   className="text-xs text-danger-400 opacity-50 hover:opacity-100">Ukloni</button>
               </div>
             </Card>
@@ -161,6 +162,29 @@ export function BudgetPage() {
           <Input label="Mjesecni budzet" type="number" step="0.01" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
           <Button type="submit" className="w-full" loading={create.isPending || update.isPending}>Sacuvaj budzet</Button>
         </form>
+      </Modal>
+
+      {/* Potvrda brisanja budzeta */}
+      <Modal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Obrisati budzet?" size="sm">
+        {confirmDelete && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Budzet za <strong>{confirmDelete.category?.name || 'Nepoznato'}</strong> ce biti trajno obrisan. Ova akcija se ne moze ponistiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDelete(null)}>Odustani</Button>
+              <Button variant="danger" className="flex-1" onClick={async () => {
+                try {
+                  await remove.mutateAsync(confirmDelete.id);
+                  toast.success('Obrisano');
+                  setConfirmDelete(null);
+                } catch {
+                  toast.error('Greska');
+                }
+              }}>Obrisi</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </motion.div>
   );

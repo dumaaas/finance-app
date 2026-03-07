@@ -25,13 +25,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-/** Detect if running as installed PWA (standalone mode) */
-function isStandalone(): boolean {
+function isMobile(): boolean {
   if (typeof window === 'undefined') return false;
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true ||
-    document.referrer.includes('android-app://')
+  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+    navigator.userAgent,
   );
 }
 
@@ -54,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    // Handle return from Google redirect (PWA / mobile)
+    // Handle return from Google redirect (mobile flow)
     getRedirectResult(auth)
       .then((result) => {
         if (result?.user) setUser(mapUser(result.user));
@@ -78,14 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
 
-    // In standalone PWA mode, popup is almost always blocked.
-    // Go straight to redirect to avoid the flash-and-fail UX.
-    if (isStandalone()) {
+    // Mobile browsers: always use redirect (same-origin via vercel.json proxy)
+    // Desktop browsers: use popup (better UX, stays on page)
+    if (isMobile()) {
       await signInWithRedirect(auth, provider);
       return;
     }
 
-    // On regular browser: try popup first, fallback to redirect if blocked
+    // Desktop: try popup, fallback to redirect if blocked
     try {
       await signInWithPopup(auth, provider);
     } catch (err: unknown) {
@@ -93,11 +90,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ? (err as { code: string }).code
         : '';
       if (code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') {
-        // Popup was blocked — fall back to redirect seamlessly
         await signInWithRedirect(auth, provider);
         return;
       }
-      throw err; // Re-throw other errors (network, etc.)
+      throw err;
     }
   };
 

@@ -27,6 +27,7 @@ export function CategoriesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<(typeof categories)[0] | null>(null);
   const [activeTab, setActiveTab] = useState<"expense" | "income">("expense");
 
   // Form
@@ -107,22 +108,6 @@ export function CategoriesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await remove.mutateAsync(id);
-      toast.success("Obrisano");
-    } catch (err: unknown) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? (err as { code: string }).code
-          : "";
-      if (code === "permission-denied") {
-        toast.error("Nemate dozvolu. Provjerite Firestore pravila.");
-      } else {
-        toast.error(err instanceof Error ? err.message : "Greska");
-      }
-    }
-  };
 
   const initDefaults = async () => {
     if (!userId) return;
@@ -265,7 +250,7 @@ export function CategoriesPage() {
                     <Edit3 size={14} className="opacity-60" />
                   </button>
                   <button
-                    onClick={() => handleDelete(cat.id)}
+                    onClick={() => setConfirmDelete(cat)}
                     className="p-1.5 rounded-lg hover:bg-danger-500/20"
                   >
                     <Trash2 size={14} className="text-danger-400 opacity-60" />
@@ -447,6 +432,34 @@ export function CategoriesPage() {
             {editingId ? "Sacuvaj" : "Kreiraj kategoriju"}
           </Button>
         </form>
+      </Modal>
+
+      {/* Potvrda brisanja kategorije */}
+      <Modal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Obrisati kategoriju?" size="sm">
+        {confirmDelete && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Kategorija <strong>{confirmDelete.name}</strong> ce biti trajno obrisana. Ova akcija se ne moze ponistiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDelete(null)}>Odustani</Button>
+              <Button variant="danger" className="flex-1" onClick={async () => {
+                try {
+                  await remove.mutateAsync(confirmDelete.id);
+                  toast.success('Obrisano');
+                  setConfirmDelete(null);
+                } catch (err: unknown) {
+                  const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+                  if (code === 'permission-denied') {
+                    toast.error('Nemate dozvolu. Provjerite Firestore pravila.');
+                  } else {
+                    toast.error(err instanceof Error ? err.message : 'Greska');
+                  }
+                }
+              }}>Obrisi</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </motion.div>
   );

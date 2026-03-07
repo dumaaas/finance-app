@@ -21,6 +21,7 @@ export function SavingsPage() {
   const [showModal, setShowModal] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<(typeof goals)[0] | null>(null);
   const [addAmount, setAddAmount] = useState('');
 
   const [formName, setFormName] = useState('');
@@ -154,7 +155,7 @@ export function SavingsPage() {
                       </div>
                       <div className="flex gap-1">
                         <button onClick={() => openEdit(goal)} className="p-1.5 rounded-lg hover:bg-dark-700/50"><Edit3 size={14} className="opacity-50" /></button>
-                        <button onClick={() => remove.mutateAsync(goal.id).then(() => toast.success('Obrisano'))} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
+                        <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
                       </div>
                     </div>
 
@@ -202,7 +203,7 @@ export function SavingsPage() {
                         <p className="text-xs opacity-50">{formatCurrency(goal.targetAmount, currency)} - Ostvareno!</p>
                       </div>
                     </div>
-                    <button onClick={() => remove.mutateAsync(goal.id)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
+                    <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
                   </div>
                 </Card>
               ))}
@@ -248,6 +249,29 @@ export function SavingsPage() {
             {editingId ? 'Sacuvaj' : 'Kreiraj cilj'}
           </Button>
         </form>
+      </Modal>
+
+      {/* Potvrda brisanja cilja */}
+      <Modal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Obrisati cilj?" size="sm">
+        {confirmDelete && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Cilj <strong>{confirmDelete.name}</strong> ce biti trajno obrisan. Ova akcija se ne moze ponistiti.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmDelete(null)}>Odustani</Button>
+              <Button variant="danger" className="flex-1" onClick={async () => {
+                try {
+                  await remove.mutateAsync(confirmDelete.id);
+                  toast.success('Obrisano');
+                  setConfirmDelete(null);
+                } catch {
+                  toast.error('Greska');
+                }
+              }}>Obrisi</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </motion.div>
   );
