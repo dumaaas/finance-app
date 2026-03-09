@@ -7,6 +7,7 @@ import {
   CreditCard,
   ArrowUpRight,
   ArrowDownRight,
+  PiggyBank,
 } from "lucide-react";
 import {
   AreaChart,
@@ -28,6 +29,7 @@ import {
   useCategories,
   useInstallments,
   useRecurringBills,
+  useSavingsGoals,
 } from "../hooks/useFirestore";
 import { useAppStore } from "../lib/store";
 import { formatCurrency, cn } from "../lib/utils";
@@ -48,6 +50,15 @@ export function DashboardPage() {
   const { data: categories = [] } = useCategories();
   const { data: installments = [] } = useInstallments();
   const { data: recurringBills = [] } = useRecurringBills();
+  const { data: savingsGoals = [] } = useSavingsGoals();
+
+  const savingsStats = useMemo(() => {
+    const activeGoals = savingsGoals.filter((g) => !g.isWithdrawn);
+    const totalSaved = activeGoals.reduce((s, g) => s + g.currentAmount, 0);
+    const totalTarget = activeGoals.reduce((s, g) => s + g.targetAmount, 0);
+    const activeCount = activeGoals.filter((g) => !g.isCompleted).length;
+    return { totalSaved, totalTarget, activeCount };
+  }, [savingsGoals]);
 
   const stats = useMemo(() => {
     const income = transactions
@@ -123,7 +134,7 @@ export function DashboardPage() {
       className="space-y-6"
     >
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <motion.div variants={itemVariants}>
           <Card className="gradient-mesh">
             <div className="flex items-center gap-2 mb-3">
@@ -186,6 +197,20 @@ export function DashboardPage() {
                 stats.monthlyInstallments + stats.monthlyBills,
                 currency,
               )}
+            </p>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-2 rounded-xl bg-primary-500/20">
+                <PiggyBank size={18} className="text-primary-400" />
+              </div>
+              <span className="text-xs font-medium opacity-60">Stednja</span>
+            </div>
+            <p className="text-xl sm:text-2xl font-black text-primary-400">
+              {formatCurrency(savingsStats.totalSaved, currency)}
             </p>
           </Card>
         </motion.div>

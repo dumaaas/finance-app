@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Edit3, PiggyBank, TrendingUp, PartyPopper } from 'lucide-react';
+import { Plus, Trash2, Edit3, PiggyBank, TrendingUp, PartyPopper, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -24,6 +24,7 @@ export function SavingsPage() {
   const [showAddFunds, setShowAddFunds] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<(typeof goals)[0] | null>(null);
+  const [confirmWithdraw, setConfirmWithdraw] = useState<(typeof goals)[0] | null>(null);
   const [addAmount, setAddAmount] = useState('');
   const [addingFunds, setAddingFunds] = useState(false);
 
@@ -148,9 +149,10 @@ export function SavingsPage() {
   };
 
   const active = goals.filter((g) => !g.isCompleted);
-  const completed = goals.filter((g) => g.isCompleted);
-  const totalSaved = goals.reduce((s, g) => s + g.currentAmount, 0);
-  const totalTarget = goals.reduce((s, g) => s + g.targetAmount, 0);
+  const completed = goals.filter((g) => g.isCompleted && !g.isWithdrawn);
+  const withdrawn = goals.filter((g) => g.isWithdrawn);
+  const totalSaved = goals.filter((g) => !g.isWithdrawn).reduce((s, g) => s + g.currentAmount, 0);
+  const totalTarget = goals.filter((g) => !g.isWithdrawn).reduce((s, g) => s + g.targetAmount, 0);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 sm:space-y-6">
@@ -240,7 +242,7 @@ export function SavingsPage() {
             <div className="space-y-3">
               <h3 className="text-sm font-bold opacity-60 flex items-center gap-2"><PartyPopper size={16} /> Ostvareni ciljevi</h3>
               {completed.map((goal) => (
-                <Card key={goal.id} className="!p-3 opacity-70">
+                <Card key={goal.id} className="!p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: goal.color + '20' }}>
@@ -251,7 +253,34 @@ export function SavingsPage() {
                         <p className="text-xs opacity-50">{formatCurrency(goal.targetAmount, currency)} - Ostvareno!</p>
                       </div>
                     </div>
-                    <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400" /></button>
+                    <div className="flex gap-1">
+                      <button onClick={() => setConfirmWithdraw(goal)} className="p-1.5 rounded-lg hover:bg-accent-500/20" title="Razrijesi cilj">
+                        <CheckCircle2 size={14} className="text-accent-400" />
+                      </button>
+                      <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {withdrawn.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold opacity-40 flex items-center gap-2"><CheckCircle2 size={16} /> Razrijeseni ciljevi</h3>
+              {withdrawn.map((goal) => (
+                <Card key={goal.id} className="!p-3 opacity-50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: goal.color + '20' }}>
+                        <Icon name={goal.icon} size={18} style={{ color: goal.color }} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold line-through opacity-60">{goal.name}</p>
+                        <p className="text-xs opacity-40">{formatCurrency(goal.targetAmount, currency)} - Razrijeseno</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
                   </div>
                 </Card>
               ))}
@@ -313,6 +342,33 @@ export function SavingsPage() {
             {editingId ? 'Sacuvaj' : 'Kreiraj cilj'}
           </Button>
         </form>
+      </Modal>
+
+      {/* Potvrda razrjesenja cilja */}
+      <Modal isOpen={!!confirmWithdraw} onClose={() => setConfirmWithdraw(null)} title="Razrijesiti cilj?" size="sm">
+        {confirmWithdraw && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Cilj <strong>{confirmWithdraw.name}</strong> ({formatCurrency(confirmWithdraw.currentAmount, currency)}) ce biti oznacen kao razrijesen. Sredstva se vise nece racunati u ukupnu stednju.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => setConfirmWithdraw(null)}>Odustani</Button>
+              <Button className="flex-1" loading={update.isPending} onClick={async () => {
+                try {
+                  await update.mutateAsync({
+                    id: confirmWithdraw.id,
+                    currentAmount: 0,
+                    isWithdrawn: true,
+                  });
+                  toast.success('Cilj razrijesen!');
+                  setConfirmWithdraw(null);
+                } catch {
+                  toast.error('Greska');
+                }
+              }}>Razrijesi</Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Potvrda brisanja cilja */}

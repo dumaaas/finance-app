@@ -65,6 +65,7 @@ export function RecurringBillsPage() {
     if (!userId) return;
 
     const validSubId = formCategory?.subcategories.some((s) => s.id === formSubcategoryId) ? formSubcategoryId : undefined;
+    const now = new Date().getTime();
     const data = {
       name: formName,
       amount: parseFloat(formAmount),
@@ -75,7 +76,7 @@ export function RecurringBillsPage() {
       note: formNote || undefined,
       userId,
       isActive: true,
-      createdAt: Date.now(),
+      createdAt: now,
     };
 
     try {
@@ -103,16 +104,17 @@ export function RecurringBillsPage() {
     try {
       if (bill.categoryId) {
         const subId = bill.subcategoryId && categories.find((c) => c.id === bill.categoryId)?.subcategories.some((s) => s.id === bill.subcategoryId) ? bill.subcategoryId : undefined;
+        const payNow = new Date().getTime();
         await createTransaction.mutateAsync({
           amount,
           description: bill.name,
           categoryId: bill.categoryId,
           ...(subId && { subcategoryId: subId }),
           type: 'expense',
-          date: Date.now(),
+          date: payNow,
           month: selectedMonth,
           userId,
-          createdAt: Date.now(),
+          createdAt: payNow,
         });
       } else {
         toast('Označeno plaćenim. Uredi račun i dodaj kategoriju da se transakcija upiše u rashode.', { icon: '💡' });

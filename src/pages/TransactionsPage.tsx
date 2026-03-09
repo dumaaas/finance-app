@@ -3,8 +3,6 @@ import { motion } from "framer-motion";
 import {
   Plus,
   Search,
-  ArrowUpRight,
-  ArrowDownRight,
   Trash2,
   Edit3,
 } from "lucide-react";
@@ -128,6 +126,7 @@ export function TransactionsPage() {
     )
       ? formSubcategoryId
       : undefined;
+    const now = new Date().getTime();
     const txData = {
       amount: parseFloat(formAmount),
       description: formDescription,
@@ -138,7 +137,7 @@ export function TransactionsPage() {
       date: dateObj.getTime(),
       month: format(dateObj, "yyyy-MM"),
       userId,
-      createdAt: Date.now(),
+      createdAt: now,
     };
 
     try {
@@ -167,15 +166,6 @@ export function TransactionsPage() {
     }
   };
 
-  const totals = useMemo(() => {
-    const income = filteredTransactions
-      .filter((t) => t.type === "income")
-      .reduce((s, t) => s + t.amount, 0);
-    const expense = filteredTransactions
-      .filter((t) => t.type === "expense")
-      .reduce((s, t) => s + t.amount, 0);
-    return { income, expense };
-  }, [filteredTransactions]);
 
   return (
     <motion.div
