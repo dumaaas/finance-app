@@ -20,7 +20,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { format } from "date-fns";
+import { format, endOfMonth } from "date-fns";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -52,6 +52,13 @@ export function DashboardPage() {
   const { data: recurringBills = [] } = useRecurringBills();
   const { data: savingsGoals = [] } = useSavingsGoals();
 
+  const daysLeftInMonth = (() => {
+    const today = new Date();
+    const end = endOfMonth(today);
+    const diffDays = end.getDate() - today.getDate() + 1;
+    return diffDays > 0 ? diffDays : 1;
+  })();
+
   const savingsStats = useMemo(() => {
     const activeGoals = savingsGoals.filter((g) => !g.isWithdrawn);
     const totalSaved = activeGoals.reduce((s, g) => s + g.currentAmount, 0);
@@ -61,12 +68,31 @@ export function DashboardPage() {
   }, [savingsGoals]);
 
   const stats = useMemo(() => {
+    const today = new Date();
+    const todayDate = today.getDate();
+    const todayMonth = today.getMonth();
+    const todayYear = today.getFullYear();
+
     const income = transactions
       .filter((t) => t.type === "income")
       .reduce((s, t) => s + t.amount, 0);
     const expenses = transactions
       .filter((t) => t.type === "expense")
       .reduce((s, t) => s + t.amount, 0);
+
+    const todayExpenses = transactions
+      .filter((t) => t.type === "expense")
+      .reduce((s, t) => {
+        const d = new Date(t.date);
+        if (
+          d.getDate() === todayDate &&
+          d.getMonth() === todayMonth &&
+          d.getFullYear() === todayYear
+        ) {
+          return s + t.amount;
+        }
+        return s;
+      }, 0);
     const activeInstallments = installments.filter((i) => i.isActive);
     const monthlyInstallments = activeInstallments.reduce(
       (s, i) => s + i.monthlyAmount,
@@ -111,12 +137,16 @@ export function DashboardPage() {
       income,
       expenses,
       balance: income - expenses,
+      todayExpenses,
       monthlyInstallments,
       monthlyBills,
       breakdown,
       dailyData,
     };
   }, [transactions, categories, installments, recurringBills]);
+
+  const dailyAverageWithToday =
+    (stats.balance + stats.todayExpenses) / daysLeftInMonth;
 
   if (isLoading) {
     return (
@@ -134,7 +164,7 @@ export function DashboardPage() {
       className="space-y-6"
     >
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
         <motion.div variants={itemVariants}>
           <Card className="gradient-mesh">
             <div className="flex items-center gap-2 mb-3">
@@ -150,6 +180,37 @@ export function DashboardPage() {
               )}
             >
               {formatCurrency(stats.balance, currency)}
+            </p>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-2 rounded-xl bg-primary-500/20">
+                <Wallet size={18} className="text-primary-400" />
+              </div>
+              <span className="text-xs font-medium opacity-60">
+                Dan prosjek
+              </span>
+            </div>
+            <p
+              className={cn(
+                "text-xl sm:text-2xl font-black flex items-center gap-1",
+                stats.balance >= 0 ? "text-accent-400" : "text-danger-400",
+              )}
+            >
+              {formatCurrency(dailyAverageWithToday, currency)}{" "}
+              <span
+                className={cn(
+                  "text-xs font-semibold",
+                  stats.todayExpenses <= dailyAverageWithToday
+                    ? "text-accent-400"
+                    : "text-danger-400",
+                )}
+              >
+                (-{formatCurrency(stats.todayExpenses, currency)})
+              </span>
             </p>
           </Card>
         </motion.div>
