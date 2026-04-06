@@ -177,23 +177,23 @@ export function SifraPage() {
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="space-y-5"
+      className="space-y-4 sm:space-y-5"
     >
       {/* Header */}
-      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Lock size={26} className="text-primary-500" />
+      <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <Lock size={24} className="text-primary-500 shrink-0" />
             Sifra
           </h1>
           <p className="text-sm opacity-60 mt-1">Pogodi tajnu kombinaciju na osnovu tragova</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setShowRules(true)}>
+        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
+          <Button variant="ghost" size="sm" onClick={() => setShowRules(true)} className="w-full sm:w-auto">
             <HelpCircle size={18} />
             Pravila
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => startNewGame()}>
+          <Button variant="secondary" size="sm" onClick={() => startNewGame()} className="w-full sm:w-auto">
             <Shuffle size={18} />
             Nova igra
           </Button>
@@ -203,15 +203,15 @@ export function SifraPage() {
       {/* Difficulty selector */}
       <motion.div variants={itemVariants}>
         <Card>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
             <span className="text-sm font-medium opacity-70">Tezina:</span>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-2 w-full sm:flex sm:flex-1">
               {(Object.entries(DIFFICULTIES) as [Difficulty, DifficultyConfig][]).map(([key, cfg]) => (
                 <button
                   key={key}
                   onClick={() => handleDifficultyChange(key)}
                   className={cn(
-                    'px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                    'w-full px-4 py-3 rounded-xl text-left text-sm font-medium transition-all sm:flex-1',
                     difficulty === key
                       ? 'gradient-primary text-white shadow-lg shadow-primary-500/20'
                       : theme === 'dark'
@@ -219,8 +219,8 @@ export function SifraPage() {
                         : 'bg-dark-100 text-dark-600 hover:bg-dark-200'
                   )}
                 >
-                  {cfg.label}
-                  <span className="ml-1.5 text-xs opacity-70">({cfg.description})</span>
+                  <span className="block">{cfg.label}</span>
+                  <span className="block text-xs opacity-70 mt-0.5">{cfg.description}</span>
                 </button>
               ))}
             </div>
@@ -243,7 +243,7 @@ export function SifraPage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.08 }}
                 className={cn(
-                  'flex items-center gap-3 sm:gap-4 p-3 rounded-xl',
+                  'flex flex-wrap items-center gap-2 sm:gap-4 p-3 rounded-xl',
                   theme === 'dark' ? 'bg-dark-800/60' : 'bg-dark-50'
                 )}
               >
@@ -255,12 +255,12 @@ export function SifraPage() {
                 </span>
 
                 {/* Combination digits */}
-                <div className="flex gap-1.5 sm:gap-2">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2 min-w-0">
                   {clue.combination.map((digit, j) => (
                     <span
                       key={j}
                       className={cn(
-                        'w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-sm sm:text-base font-bold',
+                        'w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-sm sm:text-base font-bold shrink-0',
                         theme === 'dark'
                           ? 'bg-dark-700 text-dark-100'
                           : 'bg-white text-dark-800 border border-dark-200'
@@ -272,7 +272,7 @@ export function SifraPage() {
                 </div>
 
                 {/* Feedback circles */}
-                <div className="flex gap-1.5 ml-auto">
+                <div className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:ml-auto sm:justify-end">
                   {Array.from({ length: clue.exactMatches }).map((_, k) => (
                     <div
                       key={`exact-${k}`}
@@ -356,8 +356,8 @@ export function SifraPage() {
             <>
               <h2 className="text-base font-semibold mb-4">Tvoj odgovor</h2>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="flex gap-2">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div className="flex flex-wrap justify-center sm:justify-start gap-2 w-full sm:w-auto">
                   {Array.from({ length: config.codeLength }).map((_, i) => (
                     <input
                       key={i}
@@ -370,7 +370,7 @@ export function SifraPage() {
                       onKeyDown={(e) => handleKeyDown(i, e)}
                       onFocus={(e) => e.target.select()}
                       className={cn(
-                        'w-12 h-12 sm:w-14 sm:h-14 text-center text-xl font-bold rounded-xl outline-none transition-all',
+                        'w-12 h-12 sm:w-14 sm:h-14 text-center text-lg sm:text-xl font-bold rounded-xl outline-none transition-all shrink-0',
                         'focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500',
                         theme === 'dark'
                           ? 'bg-dark-800 border border-dark-600 text-dark-100'
@@ -382,15 +382,15 @@ export function SifraPage() {
                   ))}
                 </div>
 
-                <div className="flex gap-2">
-                  <Button onClick={handleSubmit}>
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex">
+                  <Button onClick={handleSubmit} className="w-full sm:w-auto">
                     Provjeri
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setRevealSecret(!revealSecret)}
-                    className="text-xs"
+                    className="w-full sm:w-auto text-xs"
                   >
                     {revealSecret ? 'Sakrij' : 'Otkrij'}
                   </Button>
@@ -411,10 +411,10 @@ export function SifraPage() {
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="mt-3 flex items-center gap-2"
+                  className="mt-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center"
                 >
                   <span className="text-xs opacity-50">Tajna sifra:</span>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {secret.map((d, i) => (
                       <span
                         key={i}
@@ -436,15 +436,16 @@ export function SifraPage() {
 
       {/* Rules modal */}
       {showRules && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowRules(false)} />
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
-              'relative w-full max-w-md rounded-2xl p-6 z-10',
+              'relative z-10 w-full max-w-md rounded-2xl p-5 sm:p-6 max-h-[85dvh] overflow-y-auto',
               theme === 'dark' ? 'bg-dark-900 border border-dark-700' : 'bg-white border border-dark-200'
             )}
+            style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 0px))' }}
           >
             <button
               onClick={() => setShowRules(false)}
