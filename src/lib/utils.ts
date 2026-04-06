@@ -1,4 +1,5 @@
 import { format, parse } from 'date-fns';
+import type { Transaction } from '../types';
 
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ');
@@ -30,6 +31,77 @@ export function getMonthRange(monthStr: string): { start: number; end: number } 
 
 export function generateId(): string {
   return crypto.randomUUID();
+}
+
+function hasTimePart(timestamp: number): boolean {
+  const date = new Date(timestamp);
+  return (
+    date.getHours() !== 0 ||
+    date.getMinutes() !== 0 ||
+    date.getSeconds() !== 0 ||
+    date.getMilliseconds() !== 0
+  );
+}
+
+function isSameLocalDay(first: number, second: number): boolean {
+  const a = new Date(first);
+  const b = new Date(second);
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function shouldDisplayCreatedAtTime(transaction: Pick<Transaction, 'date' | 'createdAt'>): boolean {
+  return !hasTimePart(transaction.date) && transaction.createdAt > 0 && isSameLocalDay(transaction.date, transaction.createdAt);
+}
+
+export function compareTransactionsByDateTime(a: Transaction, b: Transaction): number {
+  const dateDiff = b.date - a.date;
+  if (dateDiff !== 0) return dateDiff;
+  return b.createdAt - a.createdAt;
+}
+
+export function combineDateWithCurrentTime(dateValue: string): number {
+  const [year, month, day] = dateValue.split('-').map((part) => Number.parseInt(part, 10));
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  return new Date(year, month - 1, day, hours, minutes).getTime();
+}
+
+export function getDateInputValue(timestamp: number): string {
+  return format(new Date(timestamp), 'yyyy-MM-dd');
+}
+
+export function formatTransactionDateTime(
+  transaction: Pick<Transaction, 'date' | 'createdAt'>,
+  includeYear: boolean = true
+): string {
+  const pattern = includeYear ? 'dd. MMM yyyy' : 'dd. MMM';
+
+  if (hasTimePart(transaction.date)) {
+    return format(new Date(transaction.date), `${pattern}, HH:mm`);
+  }
+
+  if (shouldDisplayCreatedAtTime(transaction)) {
+    return format(new Date(transaction.createdAt), `${pattern}, HH:mm`);
+  }
+
+  return format(new Date(transaction.date), pattern);
+}
+
+export function formatTransactionDate(
+  transaction: Pick<Transaction, 'date'>
+): string {
+  return format(new Date(transaction.date), 'dd. MMM yyyy');
+}
+
+export function formatTransactionShortDate(
+  transaction: Pick<Transaction, 'date'>
+): string {
+  return format(new Date(transaction.date), 'dd. MMM');
 }
 
 export const CATEGORY_ICONS = [

@@ -19,7 +19,14 @@ import {
   useCategories,
 } from "../hooks/useFirestore";
 import { useAppStore } from "../lib/store";
-import { formatCurrency, cn } from "../lib/utils";
+import {
+  combineDateWithCurrentTime,
+  compareTransactionsByDateTime,
+  formatCurrency,
+  formatTransactionDate,
+  cn,
+  getDateInputValue,
+} from "../lib/utils";
 import toast from "react-hot-toast";
 
 export function TransactionsPage() {
@@ -50,8 +57,16 @@ export function TransactionsPage() {
 
   // Flatten all pages into a single list
   const allTransactions = useMemo(
-    () => data?.pages.flatMap((p) => p.items) ?? [],
+    () =>
+      [...(data?.pages.flatMap((p) => p.items) ?? [])].sort(
+        compareTransactionsByDateTime,
+      ),
     [data],
+  );
+
+  const editingTransaction = useMemo(
+    () => allTransactions.find((t) => t.id === editingId) ?? null,
+    [allTransactions, editingId],
   );
 
   const filteredTransactions = useMemo(() => {
@@ -107,7 +122,7 @@ export function TransactionsPage() {
     setFormDescription(t.description);
     setFormCategoryId(t.categoryId);
     setFormSubcategoryId(t.subcategoryId || "");
-    setFormDate(format(new Date(t.date), "yyyy-MM-dd"));
+    setFormDate(getDateInputValue(t.date));
     setShowModal(true);
   };
 
@@ -119,7 +134,8 @@ export function TransactionsPage() {
       return;
     }
 
-    const dateObj = new Date(formDate);
+    const timestamp = combineDateWithCurrentTime(formDate);
+    const dateObj = new Date(timestamp);
     const selectedCat = categories.find((c) => c.id === formCategoryId);
     const validSubId = selectedCat?.subcategories.some(
       (s) => s.id === formSubcategoryId,
@@ -134,10 +150,10 @@ export function TransactionsPage() {
       ...(validSubId != null &&
         validSubId !== "" && { subcategoryId: validSubId }),
       type: formType,
-      date: dateObj.getTime(),
+      date: timestamp,
       month: format(dateObj, "yyyy-MM"),
       userId,
-      createdAt: now,
+      createdAt: editingTransaction?.createdAt ?? now,
     };
 
     try {
@@ -273,7 +289,7 @@ export function TransactionsPage() {
                       <p className="text-xs opacity-50">
                         {cat?.name}
                         {sub ? ` / ${sub.name}` : ""} &middot;{" "}
-                        {format(new Date(t.date), "dd. MMM yyyy")}
+                        {formatTransactionDate(t)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">

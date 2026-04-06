@@ -32,7 +32,12 @@ import {
   useSavingsGoals,
 } from "../hooks/useFirestore";
 import { useAppStore } from "../lib/store";
-import { formatCurrency, cn } from "../lib/utils";
+import {
+  compareTransactionsByDateTime,
+  formatCurrency,
+  formatTransactionShortDate,
+  cn,
+} from "../lib/utils";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -66,6 +71,11 @@ export function DashboardPage() {
     const activeCount = activeGoals.filter((g) => !g.isCompleted).length;
     return { totalSaved, totalTarget, activeCount };
   }, [savingsGoals]);
+
+  const recentTransactions = useMemo(
+    () => [...transactions].sort(compareTransactionsByDateTime).slice(0, 8),
+    [transactions],
+  );
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -396,9 +406,9 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold opacity-80">Zadnje transakcije</h3>
           </div>
-          {transactions.length > 0 ? (
+          {recentTransactions.length > 0 ? (
             <div className="space-y-2">
-              {transactions.slice(0, 8).map((t) => {
+              {recentTransactions.map((t) => {
                 const cat = categories.find((c) => c.id === t.categoryId);
                 return (
                   <div
@@ -428,7 +438,7 @@ export function DashboardPage() {
                       </p>
                       <p className="text-xs opacity-50">
                         {cat?.name} &middot;{" "}
-                        {format(new Date(t.date), "dd. MMM")}
+                        {formatTransactionShortDate(t)}
                       </p>
                     </div>
                     <div

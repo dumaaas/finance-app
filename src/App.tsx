@@ -14,6 +14,7 @@ import { ReceiptScanPage } from './pages/ReceiptScanPage';
 import { BudgetPage } from './pages/BudgetPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SifraPage } from './pages/SifraPage';
 import { useEffect, type ReactNode } from 'react';
 
 const queryClient = new QueryClient({
@@ -84,6 +85,7 @@ export default function App() {
                 <Route path="receipts" element={<ReceiptScanPage />} />
                 <Route path="budget" element={<BudgetPage />} />
                 <Route path="savings" element={<SavingsPage />} />
+                <Route path="sifra" element={<SifraPage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

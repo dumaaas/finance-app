@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, ArrowLeftRight, Tags, CalendarClock,
   Repeat, Camera, Target, PiggyBank, Settings, LogOut,
-  X, Sun, Moon,
+  X, Sun, Moon, Lock,
 } from 'lucide-react';
 import { useAppStore } from '../../lib/store';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,6 +18,7 @@ const navItems = [
   { to: '/receipts', icon: Camera, label: 'Skeniraj racun' },
   { to: '/budget', icon: Target, label: 'Budzet' },
   { to: '/savings', icon: PiggyBank, label: 'Stednja' },
+  { to: '/sifra', icon: Lock, label: 'Sifra' },
   { to: '/settings', icon: Settings, label: 'Podesavanja' },
 ];
 
