@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Edit3, PiggyBank, TrendingUp, PartyPopper, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Edit3, PiggyBank, TrendingUp, PartyPopper, CheckCircle2, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
+import { useQueryClient } from '@tanstack/react-query';
+import { doc, writeBatch } from 'firebase/firestore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
@@ -9,12 +11,14 @@ import { Modal } from '../components/ui/Modal';
 import { Icon } from '../components/ui/Icon';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useSavingsGoals, useSavingsGoalMutations, useCategories, useTransactionMutations } from '../hooks/useFirestore';
+import { db } from '../lib/firebase';
 import { useAppStore } from '../lib/store';
 import { formatCurrency, cn, CATEGORY_ICONS, CATEGORY_COLORS } from '../lib/utils';
 import toast from 'react-hot-toast';
 
 export function SavingsPage() {
   const { theme, currency } = useAppStore();
+  const queryClient = useQueryClient();
   const { data: goals = [], isLoading } = useSavingsGoals();
   const { create, update, remove, userId } = useSavingsGoalMutations();
   const { data: categories = [] } = useCategories();
@@ -25,11 +29,15 @@ export function SavingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<(typeof goals)[0] | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState<(typeof goals)[0] | null>(null);
+  const [transferSourceGoal, setTransferSourceGoal] = useState<(typeof goals)[0] | null>(null);
   const [addAmount, setAddAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDescription, setWithdrawDescription] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferTargetId, setTransferTargetId] = useState('');
   const [addingFunds, setAddingFunds] = useState(false);
   const [withdrawingFunds, setWithdrawingFunds] = useState(false);
+  const [transferringFunds, setTransferringFunds] = useState(false);
 
   const [formName, setFormName] = useState('');
   const [formTarget, setFormTarget] = useState('');
@@ -42,6 +50,7 @@ export function SavingsPage() {
 
   const expenseCategories = categories.filter((c) => c.type === 'expense');
   const selectedCategory = categories.find((c) => c.id === formCategoryId);
+  const transferTargets = goals.filter((g) => g.id !== transferSourceGoal?.id);
 
   const resetForm = () => {
     setFormName(''); setFormTarget(''); setFormCurrent('0'); setFormDeadline('');
@@ -117,12 +126,17 @@ export function SavingsPage() {
     }
 
     const newAmount = roundCurrencyAmount(goal.currentAmount + amount);
+    const newTargetAmount = goal.isCompleted
+      ? roundCurrencyAmount(goal.targetAmount + amount)
+      : goal.targetAmount;
     setAddingFunds(true);
     try {
       await update.mutateAsync({
         id: goalId,
         currentAmount: newAmount,
-        isCompleted: newAmount >= goal.targetAmount,
+        targetAmount: newTargetAmount,
+        isCompleted: goal.isCompleted || newAmount >= goal.targetAmount,
+        isWithdrawn: false,
       });
 
       // Auto-create expense transaction if goal has a category
@@ -161,6 +175,7 @@ export function SavingsPage() {
   };
 
   const openWithdrawModal = (goal: typeof goals[0]) => {
+    setShowAddFunds(null);
     setConfirmWithdraw(goal);
     setWithdrawAmount(goal.currentAmount.toString());
     setWithdrawDescription('');
@@ -225,6 +240,73 @@ export function SavingsPage() {
       toast.error('Greska');
     } finally {
       setWithdrawingFunds(false);
+    }
+  };
+
+  const openTransferModal = (goal: typeof goals[0]) => {
+    setShowAddFunds(null);
+    setTransferSourceGoal(goal);
+    setTransferAmount(goal.currentAmount.toString());
+    setTransferTargetId('');
+  };
+
+  const handleTransferFunds = async () => {
+    if (!transferSourceGoal || !userId) return;
+
+    const sourceGoal = goals.find((g) => g.id === transferSourceGoal.id);
+    const targetGoal = goals.find((g) => g.id === transferTargetId);
+    const amount = parseFloat(transferAmount);
+
+    if (!targetGoal) {
+      toast.error('Odaberi cilj na koji prebacujes sredstva');
+      return;
+    }
+
+    if (Number.isNaN(amount) || amount <= 0) {
+      toast.error('Unesi ispravan iznos');
+      return;
+    }
+
+    if (!sourceGoal || amount > sourceGoal.currentAmount) {
+      toast.error('Ne mozes prebaciti vise nego sto ima na izvornom cilju');
+      return;
+    }
+
+    const sourceNewAmount = roundCurrencyAmount(sourceGoal.currentAmount - amount);
+    const targetNewAmount = roundCurrencyAmount(targetGoal.currentAmount + amount);
+    const targetNewTargetAmount = targetGoal.isCompleted
+      ? roundCurrencyAmount(targetGoal.targetAmount + amount)
+      : targetGoal.targetAmount;
+
+    const sourceIsCompleted = sourceGoal.isCompleted || sourceNewAmount >= sourceGoal.targetAmount;
+    const targetIsCompleted = targetGoal.isCompleted || targetNewAmount >= targetGoal.targetAmount;
+
+    setTransferringFunds(true);
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'savingsGoals', sourceGoal.id), {
+        currentAmount: sourceNewAmount,
+        isCompleted: sourceIsCompleted,
+        isWithdrawn: sourceIsCompleted && sourceNewAmount <= 0,
+      });
+      batch.update(doc(db, 'savingsGoals', targetGoal.id), {
+        currentAmount: targetNewAmount,
+        targetAmount: targetNewTargetAmount,
+        isCompleted: targetIsCompleted,
+        isWithdrawn: false,
+      });
+      await batch.commit();
+
+      await queryClient.invalidateQueries({ queryKey: ['savingsGoals'] });
+
+      toast.success(`Prebaceno ${formatCurrency(amount, currency)} sa "${sourceGoal.name}" na "${targetGoal.name}"`);
+      setTransferSourceGoal(null);
+      setTransferAmount('');
+      setTransferTargetId('');
+    } catch {
+      toast.error('Greska pri transferu');
+    } finally {
+      setTransferringFunds(false);
     }
   };
 
@@ -308,9 +390,20 @@ export function SavingsPage() {
                         <Button variant="ghost" size="sm" onClick={() => setShowAddFunds(null)}>X</Button>
                       </div>
                     ) : (
-                      <Button variant="secondary" size="sm" className="w-full mt-3" onClick={() => setShowAddFunds(goal.id)}>
-                        <TrendingUp size={14} /> Dodaj sredstva
-                      </Button>
+                      <div className="grid grid-cols-2 gap-2 mt-3">
+                        <Button variant="secondary" size="sm" className="w-full" onClick={() => setShowAddFunds(goal.id)}>
+                          <TrendingUp size={14} /> Dodaj sredstva
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => openTransferModal(goal)}
+                          disabled={goal.currentAmount <= 0 || goals.length < 2}
+                        >
+                          <ArrowRightLeft size={14} /> Transfer
+                        </Button>
+                      </div>
                     )}
                   </Card>
                 );
@@ -342,6 +435,30 @@ export function SavingsPage() {
                       <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
                     </div>
                   </div>
+                  {showAddFunds === goal.id ? (
+                    <div className="flex gap-2 mt-3">
+                      <input type="number" step="0.01" placeholder="Iznos" value={addAmount}
+                        onChange={(e) => setAddAmount(e.target.value)}
+                        className={cn('flex-1 px-3 py-2 rounded-lg text-sm outline-none', theme === 'dark' ? 'bg-dark-800 border border-dark-700 text-dark-100' : 'bg-dark-50 border border-dark-200')} />
+                      <Button size="sm" onClick={() => handleAddFunds(goal.id)} loading={addingFunds} disabled={addingFunds}>Dodaj</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddFunds(null)}>X</Button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      <Button variant="secondary" size="sm" className="w-full" onClick={() => setShowAddFunds(goal.id)}>
+                        <TrendingUp size={14} /> Dodaj jos
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => openTransferModal(goal)}
+                        disabled={goal.currentAmount <= 0 || goals.length < 2}
+                      >
+                        <ArrowRightLeft size={14} /> Transfer
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
@@ -364,6 +481,19 @@ export function SavingsPage() {
                     </div>
                     <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
                   </div>
+                  {showAddFunds === goal.id ? (
+                    <div className="flex gap-2 mt-3">
+                      <input type="number" step="0.01" placeholder="Iznos" value={addAmount}
+                        onChange={(e) => setAddAmount(e.target.value)}
+                        className={cn('flex-1 px-3 py-2 rounded-lg text-sm outline-none', theme === 'dark' ? 'bg-dark-800 border border-dark-700 text-dark-100' : 'bg-dark-50 border border-dark-200')} />
+                      <Button size="sm" onClick={() => handleAddFunds(goal.id)} loading={addingFunds} disabled={addingFunds}>Dodaj</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddFunds(null)}>X</Button>
+                    </div>
+                  ) : (
+                    <Button variant="secondary" size="sm" className="w-full mt-3" onClick={() => setShowAddFunds(goal.id)}>
+                      <TrendingUp size={14} /> Dodaj sredstva ponovo
+                    </Button>
+                  )}
                 </Card>
               ))}
             </div>
@@ -460,6 +590,51 @@ export function SavingsPage() {
             <div className="flex gap-3">
               <Button variant="secondary" className="flex-1" onClick={() => { setConfirmWithdraw(null); setWithdrawAmount(''); setWithdrawDescription(''); }}>Odustani</Button>
               <Button className="flex-1" loading={withdrawingFunds} disabled={withdrawingFunds} onClick={handleWithdrawFunds}>Skini sredstva</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Transfer sa cilja na cilj */}
+      <Modal
+        isOpen={!!transferSourceGoal}
+        onClose={() => { setTransferSourceGoal(null); setTransferAmount(''); setTransferTargetId(''); }}
+        title="Transfer sa cilja na cilj"
+        size="sm"
+      >
+        {transferSourceGoal && (
+          <div className="space-y-4">
+            <p className="text-sm opacity-80">
+              Prebacujes sredstva sa cilja <strong>{transferSourceGoal.name}</strong>. Ovaj transfer ne pravi novu rashodnu transakciju jer je to interni pomjeraj stednje.
+            </p>
+            <Input
+              label="Iznos za transfer"
+              type="number"
+              step="0.01"
+              min="0.01"
+              max={transferSourceGoal.currentAmount}
+              value={transferAmount}
+              onChange={(e) => setTransferAmount(e.target.value)}
+              required
+            />
+            <Select
+              label="Prebaci na cilj"
+              value={transferTargetId}
+              onChange={(e) => setTransferTargetId(e.target.value)}
+              options={[
+                { value: '', label: 'Odaberi cilj' },
+                ...transferTargets.map((goal) => ({
+                  value: goal.id,
+                  label: `${goal.name} (${formatCurrency(goal.currentAmount, currency)})`,
+                })),
+              ]}
+            />
+            <p className="text-xs opacity-50">
+              Dostupno na izvornom cilju: {formatCurrency(transferSourceGoal.currentAmount, currency)}
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => { setTransferSourceGoal(null); setTransferAmount(''); setTransferTargetId(''); }}>Odustani</Button>
+              <Button className="flex-1" loading={transferringFunds} disabled={transferringFunds || transferTargets.length === 0} onClick={handleTransferFunds}>Prebaci</Button>
             </div>
           </div>
         )}
