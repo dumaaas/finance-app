@@ -78,19 +78,22 @@ export function DashboardPage() {
   );
 
   const stats = useMemo(() => {
+    const statsTransactions = transactions.filter(
+      (t) => t.kind !== "savingsWithdrawal",
+    );
     const today = new Date();
     const todayDate = today.getDate();
     const todayMonth = today.getMonth();
     const todayYear = today.getFullYear();
 
-    const income = transactions
+    const income = statsTransactions
       .filter((t) => t.type === "income")
       .reduce((s, t) => s + t.amount, 0);
-    const expenses = transactions
+    const expenses = statsTransactions
       .filter((t) => t.type === "expense")
       .reduce((s, t) => s + t.amount, 0);
 
-    const todayExpenses = transactions
+    const todayExpenses = statsTransactions
       .filter((t) => t.type === "expense")
       .reduce((s, t) => {
         const d = new Date(t.date);
@@ -113,7 +116,7 @@ export function DashboardPage() {
 
     // Category breakdown
     const catMap = new Map<string, number>();
-    transactions
+    statsTransactions
       .filter((t) => t.type === "expense")
       .forEach((t) => {
         catMap.set(t.categoryId, (catMap.get(t.categoryId) || 0) + t.amount);
@@ -133,7 +136,7 @@ export function DashboardPage() {
 
     // Daily spending for chart
     const dayMap = new Map<string, number>();
-    transactions
+    statsTransactions
       .filter((t) => t.type === "expense")
       .forEach((t) => {
         const day = format(new Date(t.date), "dd");

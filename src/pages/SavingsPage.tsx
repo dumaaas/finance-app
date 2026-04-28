@@ -26,7 +26,10 @@ export function SavingsPage() {
   const [confirmDelete, setConfirmDelete] = useState<(typeof goals)[0] | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState<(typeof goals)[0] | null>(null);
   const [addAmount, setAddAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawDescription, setWithdrawDescription] = useState('');
   const [addingFunds, setAddingFunds] = useState(false);
+  const [withdrawingFunds, setWithdrawingFunds] = useState(false);
 
   const [formName, setFormName] = useState('');
   const [formTarget, setFormTarget] = useState('');
@@ -45,6 +48,8 @@ export function SavingsPage() {
     setFormIcon('PiggyBank'); setFormColor('#6366f1'); setEditingId(null);
     setFormCategoryId(''); setFormSubcategoryId('');
   };
+
+  const roundCurrencyAmount = (value: number) => Math.round(value * 100) / 100;
 
   const openEdit = (g: typeof goals[0]) => {
     setEditingId(g.id);
@@ -106,7 +111,12 @@ export function SavingsPage() {
     if (!goal || !userId) return;
 
     const amount = parseFloat(addAmount);
-    const newAmount = goal.currentAmount + amount;
+    if (Number.isNaN(amount) || amount <= 0) {
+      toast.error('Unesi ispravan iznos');
+      return;
+    }
+
+    const newAmount = roundCurrencyAmount(goal.currentAmount + amount);
     setAddingFunds(true);
     try {
       await update.mutateAsync({
@@ -123,6 +133,8 @@ export function SavingsPage() {
           description: `Ušteda za ${goal.name}`,
           categoryId: goal.categoryId,
           type: 'expense' as const,
+          kind: 'savingsDeposit' as const,
+          savingsGoalId: goal.id,
           date: now.getTime(),
           month: format(now, 'yyyy-MM'),
           userId,
@@ -145,6 +157,74 @@ export function SavingsPage() {
       toast.error('Greska');
     } finally {
       setAddingFunds(false);
+    }
+  };
+
+  const openWithdrawModal = (goal: typeof goals[0]) => {
+    setConfirmWithdraw(goal);
+    setWithdrawAmount(goal.currentAmount.toString());
+    setWithdrawDescription('');
+  };
+
+  const handleWithdrawFunds = async () => {
+    if (!confirmWithdraw || !userId) return;
+
+    const amount = parseFloat(withdrawAmount);
+    if (Number.isNaN(amount) || amount <= 0) {
+      toast.error('Unesi ispravan iznos');
+      return;
+    }
+
+    if (amount > confirmWithdraw.currentAmount) {
+      toast.error('Ne mozes skinuti vise nego sto ima na cilju');
+      return;
+    }
+
+    const remainingAmount = roundCurrencyAmount(confirmWithdraw.currentAmount - amount);
+    const isFullyWithdrawn = remainingAmount <= 0;
+
+    setWithdrawingFunds(true);
+    try {
+      await update.mutateAsync({
+        id: confirmWithdraw.id,
+        currentAmount: isFullyWithdrawn ? 0 : remainingAmount,
+        isCompleted: true,
+        isWithdrawn: isFullyWithdrawn,
+      });
+
+      if (confirmWithdraw.categoryId) {
+        const now = new Date();
+        const description = withdrawDescription.trim() || `Razrjesavanje cilja ${confirmWithdraw.name}`;
+        const txData: Record<string, unknown> = {
+          amount,
+          description,
+          categoryId: confirmWithdraw.categoryId,
+          type: 'expense' as const,
+          kind: 'savingsWithdrawal' as const,
+          savingsGoalId: confirmWithdraw.id,
+          date: now.getTime(),
+          month: format(now, 'yyyy-MM'),
+          userId,
+          createdAt: Date.now(),
+        };
+        if (confirmWithdraw.subcategoryId) {
+          txData.subcategoryId = confirmWithdraw.subcategoryId;
+        }
+        await createTransaction.mutateAsync(txData as Parameters<typeof createTransaction.mutateAsync>[0]);
+      }
+
+      toast.success(
+        isFullyWithdrawn
+          ? 'Cilj je u potpunosti razrijesen'
+          : `Skinuto ${formatCurrency(amount, currency)} sa cilja`
+      );
+      setConfirmWithdraw(null);
+      setWithdrawAmount('');
+      setWithdrawDescription('');
+    } catch {
+      toast.error('Greska');
+    } finally {
+      setWithdrawingFunds(false);
     }
   };
 
@@ -250,11 +330,13 @@ export function SavingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-semibold">{goal.name}</p>
-                        <p className="text-xs opacity-50">{formatCurrency(goal.targetAmount, currency)} - Ostvareno!</p>
+                        <p className="text-xs opacity-50">
+                          Dostupno {formatCurrency(goal.currentAmount, currency)} od cilja {formatCurrency(goal.targetAmount, currency)}
+                        </p>
                       </div>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => setConfirmWithdraw(goal)} className="p-1.5 rounded-lg hover:bg-accent-500/20" title="Razrijesi cilj">
+                      <button onClick={() => openWithdrawModal(goal)} className="p-1.5 rounded-lg hover:bg-accent-500/20" title="Skini sredstva sa cilja">
                         <CheckCircle2 size={14} className="text-accent-400" />
                       </button>
                       <button onClick={() => setConfirmDelete(goal)} className="p-1.5 rounded-lg hover:bg-danger-500/20"><Trash2 size={14} className="text-danger-400 opacity-50" /></button>
@@ -344,28 +426,40 @@ export function SavingsPage() {
         </form>
       </Modal>
 
-      {/* Potvrda razrjesenja cilja */}
-      <Modal isOpen={!!confirmWithdraw} onClose={() => setConfirmWithdraw(null)} title="Razrijesiti cilj?" size="sm">
+      {/* Povlacenje sredstava sa cilja */}
+      <Modal
+        isOpen={!!confirmWithdraw}
+        onClose={() => { setConfirmWithdraw(null); setWithdrawAmount(''); setWithdrawDescription(''); }}
+        title="Skini sredstva sa cilja"
+        size="sm"
+      >
         {confirmWithdraw && (
           <div className="space-y-4">
             <p className="text-sm opacity-80">
-              Cilj <strong>{confirmWithdraw.name}</strong> ({formatCurrency(confirmWithdraw.currentAmount, currency)}) ce biti oznacen kao razrijesen. Sredstva se vise nece racunati u ukupnu stednju.
+              Sa cilja <strong>{confirmWithdraw.name}</strong> mozes skinuti dio ili sav iznos. Cilj ostaje u ostvarenim dok god na njemu ima sredstava.
+            </p>
+            <Input
+              label="Iznos za povlacenje"
+              type="number"
+              step="0.01"
+              min="0.01"
+              max={confirmWithdraw.currentAmount}
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              required
+            />
+            <Input
+              label="Opis transakcije"
+              placeholder="Npr. Kapara za stan, Kupio laptop..."
+              value={withdrawDescription}
+              onChange={(e) => setWithdrawDescription(e.target.value)}
+            />
+            <p className="text-xs opacity-50">
+              Trenutno dostupno: {formatCurrency(confirmWithdraw.currentAmount, currency)}
             </p>
             <div className="flex gap-3">
-              <Button variant="secondary" className="flex-1" onClick={() => setConfirmWithdraw(null)}>Odustani</Button>
-              <Button className="flex-1" loading={update.isPending} onClick={async () => {
-                try {
-                  await update.mutateAsync({
-                    id: confirmWithdraw.id,
-                    currentAmount: 0,
-                    isWithdrawn: true,
-                  });
-                  toast.success('Cilj razrijesen!');
-                  setConfirmWithdraw(null);
-                } catch {
-                  toast.error('Greska');
-                }
-              }}>Razrijesi</Button>
+              <Button variant="secondary" className="flex-1" onClick={() => { setConfirmWithdraw(null); setWithdrawAmount(''); setWithdrawDescription(''); }}>Odustani</Button>
+              <Button className="flex-1" loading={withdrawingFunds} disabled={withdrawingFunds} onClick={handleWithdrawFunds}>Skini sredstva</Button>
             </div>
           </div>
         )}

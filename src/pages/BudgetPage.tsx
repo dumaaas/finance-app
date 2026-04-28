@@ -28,7 +28,7 @@ export function BudgetPage() {
     return budgets.map((b) => {
       const cat = categories.find((c) => c.id === b.categoryId);
       const spent = transactions
-        .filter((t) => t.categoryId === b.categoryId && t.type === 'expense')
+        .filter((t) => t.categoryId === b.categoryId && t.type === 'expense' && t.kind !== 'savingsWithdrawal')
         .reduce((s, t) => s + t.amount, 0);
       const percentage = b.amount > 0 ? (spent / b.amount) * 100 : 0;
       return { ...b, category: cat, spent, percentage, remaining: b.amount - spent };

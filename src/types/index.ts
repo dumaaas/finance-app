@@ -29,6 +29,8 @@ export interface Transaction {
   categoryId: string;
   subcategoryId?: string;
   type: 'expense' | 'income';
+  kind?: 'regular' | 'savingsDeposit' | 'savingsWithdrawal';
+  savingsGoalId?: string;
   date: number;
   month: string; // YYYY-MM format
   userId: string;
